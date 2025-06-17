@@ -5,6 +5,9 @@ let editorContent = '';
 
 console.log('Content script loaded', window.location.href);
 
+// 插件焦点状态管理
+let isPluginFocused = false;
+
 // 在页面加载完成后初始化
 window.addEventListener('load', function() {
   console.log('Page loaded, initializing FloatingMD');
@@ -20,8 +23,25 @@ window.addEventListener('load', function() {
     }
   });
   
-  // 预加载marked.js
-  loadMarkedJS();
+  // 富文本编辑器初始化完成
+  console.log('Rich text editor initialization completed');
+  
+  // 添加全局点击事件监听器来管理焦点
+  document.addEventListener('click', function(e) {
+    if (editorWrapper && editorWrapper.contains(e.target)) {
+      // 点击在插件内部，设置焦点
+      isPluginFocused = true;
+      editorWrapper.style.boxShadow = '0 5px 15px rgba(66, 133, 244, 0.3)'; // 蓝色阴影表示焦点
+      console.log('Plugin focused');
+    } else {
+      // 点击在插件外部，失去焦点
+      isPluginFocused = false;
+      if (editorWrapper) {
+        editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)'; // 恢复默认阴影
+      }
+      console.log('Plugin unfocused');
+    }
+  });
 });
 
 // 监听窗口大小变化事件，在window.addEventListener('load', function()下方添加
@@ -32,23 +52,7 @@ window.addEventListener('resize', function() {
   }
 });
 
-// 加载marked.js
-function loadMarkedJS() {
-  if (!window.marked) {
-    console.log('Loading marked.js');
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('marked.min.js');
-    script.onload = function() {
-      console.log('Marked.js loaded successfully');
-    };
-    script.onerror = function(error) {
-      console.error('Failed to load Marked.js:', error);
-    };
-    document.head.appendChild(script);
-  } else {
-    console.log('Marked.js already loaded');
-  }
-}
+
 
 // 监听来自popup或background的消息
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -139,6 +143,8 @@ function createEditor() {
     closeBtn.addEventListener('click', hideEditor);
     toolbar.appendChild(closeBtn);
     
+
+    
     // 添加导出按钮
     const exportBtn = document.createElement('button');
     exportBtn.className = 'md-export';
@@ -175,11 +181,10 @@ function createEditor() {
       }
     });
     
-    // 创建编辑区域
-    const editor = document.createElement('textarea');
+    // 创建富文本编辑区域
+    const editor = document.createElement('div');
     editor.className = 'md-editor';
-    editor.placeholder = '在此输入Markdown文本...';
-    editor.value = editorContent;
+    editor.contentEditable = true;
     editor.style.height = '100%'; // 让编辑区域占据整个容器
     editor.style.width = '100%';
     editor.style.padding = '10px';
@@ -195,6 +200,19 @@ function createEditor() {
     editor.style.borderTop = 'none';
     editor.style.borderBottom = 'none';
     editor.style.boxSizing = 'border-box';
+    editor.style.minHeight = '200px';
+    editor.style.fontFamily = 'Arial, sans-serif';
+    editor.style.fontSize = '14px';
+    editor.style.lineHeight = '1.6';
+    
+    // 设置占位符
+    if (!editorContent || editorContent.trim() === '') {
+      editor.innerHTML = '';
+      editor.setAttribute('data-placeholder', '在此输入内容或粘贴富文本...');
+    } else {
+      editor.innerHTML = editorContent;
+      editor.removeAttribute('data-placeholder');
+    }
     
     // 强制移除所有可能的边框和底部线条
     editor.style.boxShadow = 'none';
@@ -218,6 +236,10 @@ function createEditor() {
     bottomCover.style.backgroundColor = 'white';
     bottomCover.style.zIndex = '2';
     
+    // 创建调整大小的句柄
+    const resizeHandles = createResizeHandles();
+    resizeHandles.forEach(handle => editorWrapper.appendChild(handle));
+    
     // 当鼠标移到顶部区域时显示工具栏
     editor.addEventListener('mousemove', function(e) {
       const rect = editor.getBoundingClientRect();
@@ -234,47 +256,117 @@ function createEditor() {
       }
     });
     
+    // 处理占位符
+    // 处理输入事件
     editor.addEventListener('input', function() {
-      editorContent = this.value;
+      editorContent = this.innerHTML;
       saveEditorContent();
-    });
-    
-    // 监听粘贴事件
-    editor.addEventListener('paste', function(e) {
-      console.log('Text pasted into editor');
-      setTimeout(() => {
-        adjustEditorSize();
-      }, 100);
-    });
-    
-    // 文本框变化和滚动优化
-    editor.addEventListener('keydown', function(e) {
-      // 当按Tab键时，插入两个空格而不是切换焦点
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const start = this.selectionStart;
-        const end = this.selectionEnd;
-        
-        // 设置制表符为两个空格
-        this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
-        this.selectionStart = this.selectionEnd = start + 2;
-        
-        // 更新内容
-        editorContent = this.value;
-        saveEditorContent();
-      }
       
-      // 自动调整大小
+      // 处理占位符显示/隐藏
+      if (this.textContent.trim() === '') {
+        this.setAttribute('data-placeholder', '在此输入内容或粘贴富文本...');
+      } else {
+        this.removeAttribute('data-placeholder');
+      }
+    });
+    
+    // 处理焦点事件
+    editor.addEventListener('focus', function() {
+      isPluginFocused = true;
+      editorWrapper.style.boxShadow = '0 5px 15px rgba(66, 133, 244, 0.3)';
+      console.log('Plugin focused via focus event');
+    });
+    
+    editor.addEventListener('blur', function(e) {
+      // 检查新的焦点是否仍在插件内
       setTimeout(() => {
-        adjustEditorSize();
+        if (!editorWrapper.contains(document.activeElement)) {
+          isPluginFocused = false;
+          editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)';
+          console.log('Plugin unfocused via blur event');
+        }
       }, 0);
     });
     
-    // 滚动优化
+
+    
+    // 监听粘贴事件
+    editor.addEventListener('paste', function(e) {
+      console.log('Rich text paste event triggered');
+      handleRichTextPaste(e, editor);
+    });
+    
+    // 键盘事件处理
+    editor.addEventListener('keydown', function(e) {
+      // 当按Tab键时，插入缩进
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        
+        // 插入不间断空格来实现缩进
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        const tabSpan = document.createElement('span');
+        tabSpan.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;'; // 4个空格
+        range.insertNode(tabSpan);
+        
+        // 移动光标到插入内容后面
+        range.setStartAfter(tabSpan);
+        range.setEndAfter(tabSpan);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // 更新内容
+        editorContent = this.innerHTML;
+        saveEditorContent();
+      }
+      
+      // Enter键处理，确保有合适的段落结构
+      if (e.key === 'Enter') {
+        // 让浏览器默认处理，但确保结构正确
+        setTimeout(() => {
+          editorContent = this.innerHTML;
+          saveEditorContent();
+        }, 0);
+      }
+    });
+    
+    // 滚动优化和焦点管理
     editor.addEventListener('scroll', function() {
       // 如果用户滚动到底部，记录此状态
       this.isScrolledToBottom = Math.abs(this.scrollHeight - this.clientHeight - this.scrollTop) < 10;
     });
+    
+    // 阻止编辑器滚动事件冒泡到页面（只有在插件获得焦点时才允许滚动）
+    editor.addEventListener('wheel', function(e) {
+      if (!isPluginFocused) {
+        // 如果插件没有焦点，阻止滚动
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      
+      // 如果已经滚动到顶部但继续向上滚动，或者滚动到底部但继续向下滚动，则阻止事件冒泡
+      const atTop = this.scrollTop === 0;
+      const atBottom = this.scrollTop >= (this.scrollHeight - this.clientHeight);
+      
+      if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) {
+        // 在边界继续滚动时，不阻止事件，让页面可以滚动
+        return true;
+      } else {
+        // 在编辑器内部滚动时，阻止事件冒泡
+        e.stopPropagation();
+      }
+    }, { passive: false });
+    
+    // 为整个编辑器包装器添加滚动控制
+    editorWrapper.addEventListener('wheel', function(e) {
+      if (!isPluginFocused) {
+        // 如果插件没有焦点，完全阻止滚动
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    }, { passive: false });
     
     editorWrapper.appendChild(editor);
     editorWrapper.appendChild(toolbar); // 工具栏放在后面，确保显示在上层
@@ -287,8 +379,8 @@ function createEditor() {
     // 实现拖动功能
     implementDrag(toolbar);
     
-    // 再次确保加载marked.js
-    loadMarkedJS();
+    // 编辑器已创建，无需额外处理
+    console.log('Rich text editor created successfully');
     
     // 最后确认一次所有元素无边框
     setTimeout(() => {
@@ -353,7 +445,7 @@ function addIsolationStyles() {
       box-shadow: none !important;
     }
     
-    #floating-md-editor textarea.md-editor {
+    #floating-md-editor .md-editor {
       border: none !important;
       outline: none !important;
       box-shadow: none !important;
@@ -361,7 +453,63 @@ function addIsolationStyles() {
       color: black !important;
       -webkit-text-fill-color: black !important;
       -webkit-appearance: none !important;
+      position: relative;
+      transition: all 0.2s ease;
     }
+    
+    /* 占位符样式 */
+    #floating-md-editor .md-editor[data-placeholder]:empty::before {
+      content: attr(data-placeholder);
+      color: #999;
+      pointer-events: none;
+      position: absolute;
+      left: 10px;
+      top: 24px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    
+    /* 焦点状态样式 */
+    #floating-md-editor {
+      transition: box-shadow 0.2s ease;
+    }
+    
+    /* 调整大小句柄样式 */
+    .resize-handle {
+      position: absolute;
+      background: transparent;
+      z-index: 10;
+    }
+    
+    .resize-handle-n, .resize-handle-s {
+      left: 10px; right: 10px; height: 5px;
+      cursor: ns-resize;
+    }
+    
+    .resize-handle-e, .resize-handle-w {
+      top: 10px; bottom: 10px; width: 5px;
+      cursor: ew-resize;
+    }
+    
+    .resize-handle-n { top: -2px; }
+    .resize-handle-s { bottom: -2px; }
+    .resize-handle-e { right: -2px; }
+    .resize-handle-w { left: -2px; }
+    
+    .resize-handle-ne, .resize-handle-sw {
+      width: 10px; height: 10px;
+      cursor: nesw-resize;
+    }
+    
+    .resize-handle-nw, .resize-handle-se {
+      width: 10px; height: 10px;
+      cursor: nwse-resize;
+    }
+    
+    .resize-handle-ne { top: -2px; right: -2px; }
+    .resize-handle-nw { top: -2px; left: -2px; }
+    .resize-handle-se { bottom: -2px; right: -2px; }
+    .resize-handle-sw { bottom: -2px; left: -2px; }
   `;
   
   document.head.appendChild(style);
@@ -387,20 +535,25 @@ function implementDrag(handle) {
   });
   
   document.addEventListener('mousemove', function(e) {
-    if (!isDragging) return;
+    if (isDragging) {
+      // 确保编辑器不会被拖出视口
+      const newLeft = e.clientX - offsetX;
+      const newTop = e.clientY - offsetY;
+      
+      const maxX = window.innerWidth - editorWrapper.offsetWidth;
+      const maxY = window.innerHeight - editorWrapper.offsetHeight;
+      
+      editorWrapper.style.left = Math.max(0, Math.min(newLeft, maxX)) + 'px';
+      editorWrapper.style.top = Math.max(0, Math.min(newTop, maxY)) + 'px';
+      
+      // 移除right属性，因为我们现在使用left
+      editorWrapper.style.right = 'auto';
+    }
     
-    // 确保编辑器不会被拖出视口
-    const newLeft = e.clientX - offsetX;
-    const newTop = e.clientY - offsetY;
-    
-    const maxX = window.innerWidth - editorWrapper.offsetWidth;
-    const maxY = window.innerHeight - editorWrapper.offsetHeight;
-    
-    editorWrapper.style.left = Math.max(0, Math.min(newLeft, maxX)) + 'px';
-    editorWrapper.style.top = Math.max(0, Math.min(newTop, maxY)) + 'px';
-    
-    // 移除right属性，因为我们现在使用left
-    editorWrapper.style.right = 'auto';
+    // 处理调整大小
+    if (isResizing) {
+      handleResize(e);
+    }
   });
   
   document.addEventListener('mouseup', function() {
@@ -416,6 +569,9 @@ function implementDrag(handle) {
       }
     }
     isDragging = false;
+    
+    // 结束调整大小
+    stopResize();
     
     // 确保边框被移除
     editorWrapper.style.border = 'none';
@@ -437,6 +593,11 @@ function showEditor() {
   }
   editorWrapper.style.display = 'block';
   isEditorVisible = true;
+  
+  // 显示编辑器时默认不获得焦点，需要用户主动点击
+  isPluginFocused = false;
+  editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)';
+  
   chrome.storage.local.set({isVisible: true});
   adjustEditorLayout();
   console.log('Editor is now visible');
@@ -471,37 +632,192 @@ function saveEditorContent() {
   chrome.storage.local.set({editorContent: editorContent});
 }
 
-// 导出Markdown文件
+// 导出 Markdown 文件
 function exportMarkdown() {
-  console.log('Export markdown called');
-  if (!editorContent.trim()) {
+  console.log('Export Markdown called');
+  if (!editorContent.trim() || editorContent.includes('color: #999')) {
     console.log('No content to export');
     alert('编辑器中没有内容可导出！');
     return;
   }
   
   try {
-    const blob = new Blob([editorContent], {type: 'text/markdown'});
+    // 将 HTML 内容转换为 Markdown 格式
+    const markdownContent = htmlToMarkdown(editorContent);
+    
+    const blob = new Blob([markdownContent], {type: 'text/markdown'});
     const url = URL.createObjectURL(blob);
     
     const downloadLink = document.createElement('a');
     downloadLink.href = url;
     
-    // 提取第一行作为文件名（如果是标题）
-    let fileName = 'notes.md';
-    const firstLine = editorContent.split('\n')[0].trim();
-    if (firstLine.startsWith('#')) {
-      fileName = firstLine.replace(/^#+\s*/, '').trim() + '.md';
-    }
-    
+    // 从第一行文字提取文件名
+    const fileName = getFileNameFromFirstLine(editorContent);
     downloadLink.download = fileName;
     downloadLink.click();
-    console.log('File downloaded:', fileName);
+    console.log('Markdown file downloaded:', fileName);
     
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Error exporting markdown:', error);
+    alert('导出失败：' + error.message);
   }
+}
+
+// 从第一行文字提取文件名
+function getFileNameFromFirstLine(htmlContent) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = htmlContent;
+  
+  // 获取第一行文字内容
+  const firstChild = tempDiv.firstChild;
+  let firstLineText = '';
+  
+  if (firstChild) {
+    if (firstChild.nodeType === Node.TEXT_NODE) {
+      firstLineText = firstChild.textContent.trim();
+    } else if (firstChild.nodeType === Node.ELEMENT_NODE) {
+      firstLineText = firstChild.textContent.trim();
+    }
+  }
+  
+  // 如果第一行为空，尝试获取第一个非空文本节点
+  if (!firstLineText) {
+    const walker = document.createTreeWalker(
+      tempDiv,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+    
+    let node;
+    while (node = walker.nextNode()) {
+      const text = node.textContent.trim();
+      if (text) {
+        firstLineText = text;
+        break;
+      }
+    }
+  }
+  
+  // 清理文件名，移除不允许的字符
+  if (firstLineText) {
+    firstLineText = firstLineText
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '') // 移除不允许的文件名字符
+      .replace(/\s+/g, '_') // 空格替换为下划线
+      .substring(0, 50); // 限制长度
+  }
+  
+  return firstLineText ? `${firstLineText}.md` : 'notes.md';
+}
+
+// 将 HTML 转换为 Markdown
+function htmlToMarkdown(html) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  let markdown = '';
+  
+  function processNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent;
+    }
+    
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+    
+    const tagName = node.tagName.toLowerCase();
+    let content = '';
+    
+    // 递归处理子节点
+    for (let child of node.childNodes) {
+      content += processNode(child);
+    }
+    
+    switch (tagName) {
+      case 'h1':
+        return `# ${content}\n\n`;
+      case 'h2':
+        return `## ${content}\n\n`;
+      case 'h3':
+        return `### ${content}\n\n`;
+      case 'h4':
+        return `#### ${content}\n\n`;
+      case 'h5':
+        return `##### ${content}\n\n`;
+      case 'h6':
+        return `###### ${content}\n\n`;
+      case 'p':
+        return `${content}\n\n`;
+      case 'br':
+        return '\n';
+      case 'strong':
+      case 'b':
+        return `**${content}**`;
+      case 'em':
+      case 'i':
+        return `*${content}*`;
+      case 'code':
+        return `\`${content}\``;
+      case 'pre':
+        return `\`\`\`\n${content}\n\`\`\`\n\n`;
+      case 'blockquote':
+        return `> ${content}\n\n`;
+      case 'ul':
+        return `${content}\n`;
+      case 'ol':
+        return `${content}\n`;
+      case 'li':
+        const listMarker = node.parentNode.tagName.toLowerCase() === 'ol' ? '1. ' : '- ';
+        return `${listMarker}${content}\n`;
+      case 'a':
+        const href = node.getAttribute('href') || '';
+        return href ? `[${content}](${href})` : content;
+      case 'img':
+        const src = node.getAttribute('src') || '';
+        const alt = node.getAttribute('alt') || '';
+        return src ? `![${alt}](${src})` : '';
+      case 'table':
+        return convertTableToMarkdown(node);
+      case 'hr':
+        return '---\n\n';
+      case 'div':
+      case 'span':
+        return content;
+      default:
+        return content;
+    }
+  }
+  
+  markdown = processNode(tempDiv);
+  
+  // 清理多余的空行
+  markdown = markdown.replace(/\n{3,}/g, '\n\n');
+  
+  return markdown.trim();
+}
+
+// 转换表格为 Markdown
+function convertTableToMarkdown(tableNode) {
+  const rows = tableNode.querySelectorAll('tr');
+  if (rows.length === 0) return '';
+  
+  let markdown = '';
+  
+  rows.forEach((row, rowIndex) => {
+    const cells = row.querySelectorAll('td, th');
+    const cellContents = Array.from(cells).map(cell => cell.textContent.trim());
+    
+    markdown += '| ' + cellContents.join(' | ') + ' |\n';
+    
+    // 如果是第一行，添加分隔符
+    if (rowIndex === 0) {
+      markdown += '|' + ' --- |'.repeat(cells.length) + '\n';
+    }
+  });
+  
+  return markdown + '\n';
 }
 
 // 清空编辑器
@@ -512,10 +828,10 @@ function clearEditor() {
     if (editorWrapper) {
       const editor = editorWrapper.querySelector('.md-editor');
       if (editor) {
-        editor.value = '';
+        editor.innerHTML = '<p style="color: #999;">在此输入内容或粘贴富文本...</p>';
         console.log('Editor content cleared');
       } else {
-        console.log('Editor textarea not found');
+        console.log('Editor element not found');
       }
     } else {
       console.log('Editor wrapper not found');
@@ -534,6 +850,114 @@ function adjustEditorSize() {
     // 确保编辑器高度适合内容
     editor.style.height = 'calc(100% - 40px)';
     editor.scrollTop = editor.scrollHeight; // 滚动到底部以显示新粘贴的内容
+  }
+}
+
+// 创建调整大小的句柄
+function createResizeHandles() {
+  const handles = [];
+  const handleTypes = [
+    'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
+  ];
+  
+  handleTypes.forEach(type => {
+    const handle = document.createElement('div');
+    handle.className = `resize-handle resize-handle-${type}`;
+    handle.addEventListener('mousedown', (e) => startResize(e, type));
+    handles.push(handle);
+  });
+  
+  return handles;
+}
+
+// 调整大小变量
+let isResizing = false;
+let resizeType = '';
+let resizeStartX = 0;
+let resizeStartY = 0;
+let resizeStartWidth = 0;
+let resizeStartHeight = 0;
+let resizeStartLeft = 0;
+let resizeStartTop = 0;
+
+// 开始调整大小
+function startResize(e, type) {
+  if (isDragging) return; // 如果正在拖拽，不处理调整大小
+  
+  isResizing = true;
+  resizeType = type;
+  resizeStartX = e.clientX;
+  resizeStartY = e.clientY;
+  
+  const rect = editorWrapper.getBoundingClientRect();
+  resizeStartWidth = rect.width;
+  resizeStartHeight = rect.height;
+  resizeStartLeft = rect.left;
+  resizeStartTop = rect.top;
+  
+  editorWrapper.classList.add('resizing');
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  console.log('Started resizing:', type);
+}
+
+// 处理调整大小
+function handleResize(e) {
+  if (!isResizing) return;
+  
+  const deltaX = e.clientX - resizeStartX;
+  const deltaY = e.clientY - resizeStartY;
+  
+  let newWidth = resizeStartWidth;
+  let newHeight = resizeStartHeight;
+  let newLeft = resizeStartLeft;
+  let newTop = resizeStartTop;
+  
+  // 根据调整类型计算新的尺寸和位置
+  if (resizeType.includes('e')) {
+    newWidth = Math.max(300, resizeStartWidth + deltaX);
+  }
+  if (resizeType.includes('w')) {
+    newWidth = Math.max(300, resizeStartWidth - deltaX);
+    newLeft = resizeStartLeft + (resizeStartWidth - newWidth);
+  }
+  if (resizeType.includes('s')) {
+    newHeight = Math.max(200, resizeStartHeight + deltaY);
+  }
+  if (resizeType.includes('n')) {
+    newHeight = Math.max(200, resizeStartHeight - deltaY);
+    newTop = resizeStartTop + (resizeStartHeight - newHeight);
+  }
+  
+  // 确保不超出视口边界
+  const maxWidth = window.innerWidth * 0.9;
+  const maxHeight = window.innerHeight * 0.9;
+  
+  newWidth = Math.min(newWidth, maxWidth);
+  newHeight = Math.min(newHeight, maxHeight);
+  
+  // 确保不会移出视口
+  newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newWidth));
+  newTop = Math.max(0, Math.min(newTop, window.innerHeight - newHeight));
+  
+  // 应用新的尺寸和位置
+  editorWrapper.style.width = newWidth + 'px';
+  editorWrapper.style.height = newHeight + 'px';
+  editorWrapper.style.left = newLeft + 'px';
+  editorWrapper.style.top = newTop + 'px';
+  editorWrapper.style.right = 'auto';
+  editorWrapper.style.bottom = 'auto';
+}
+
+// 结束调整大小
+function stopResize() {
+  if (isResizing) {
+    isResizing = false;
+    resizeType = '';
+    editorWrapper.classList.remove('resizing');
+    console.log('Stopped resizing');
   }
 }
 
@@ -574,3 +998,155 @@ function adjustEditorLayout() {
     preview.style.height = 'calc(100% - 40px)';
   }
 }
+
+// 处理富文本粘贴事件
+function handleRichTextPaste(e, editor) {
+  e.preventDefault();
+  
+  const clipboardData = e.clipboardData || window.clipboardData;
+  if (!clipboardData) {
+    console.log('No clipboard data available');
+    return;
+  }
+  
+  // 优先获取HTML格式的数据
+  const htmlData = clipboardData.getData('text/html');
+  const plainTextData = clipboardData.getData('text/plain');
+  
+  console.log('HTML data:', htmlData ? 'Available' : 'Not available');
+  console.log('Plain text data:', plainTextData ? 'Available' : 'Not available');
+  
+  let contentToInsert = '';
+  
+  if (htmlData && htmlData.trim()) {
+    // 如果有HTML数据，清理并直接插入
+    console.log('Using HTML content');
+    contentToInsert = cleanHtmlForPaste(htmlData);
+  } else if (plainTextData) {
+    // 如果只有纯文本，转换为HTML段落
+    console.log('Converting plain text to HTML');
+    contentToInsert = plainTextToHtml(plainTextData);
+  } else {
+    console.log('No usable clipboard data');
+    return;
+  }
+  
+  // 插入内容到编辑器
+  insertHtmlAtCursor(editor, contentToInsert);
+  
+  // 更新编辑器内容
+  editorContent = editor.innerHTML;
+  saveEditorContent();
+}
+
+// 在光标位置插入HTML内容
+function insertHtmlAtCursor(editor, html) {
+  editor.focus();
+  
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    
+    // 清除占位符属性
+    editor.removeAttribute('data-placeholder');
+    
+    // 删除选中的内容
+    range.deleteContents();
+    
+    // 创建一个临时容器来解析HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    // 逐个插入节点
+    const fragment = document.createDocumentFragment();
+    while (tempDiv.firstChild) {
+      fragment.appendChild(tempDiv.firstChild);
+    }
+    
+    range.insertNode(fragment);
+    
+    // 移动光标到插入内容后面
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } else {
+    // 如果没有选择范围，直接添加到末尾
+    editor.innerHTML += html;
+    editor.removeAttribute('data-placeholder');
+  }
+}
+
+// 清理粘贴的HTML内容
+function cleanHtmlForPaste(html) {
+  // 创建临时元素来解析HTML
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  // 移除不需要的属性和样式，但保留基本格式
+  const elementsToClean = tempDiv.querySelectorAll('*');
+  elementsToClean.forEach(el => {
+    // 保留重要的样式属性
+    const allowedStyles = ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration'];
+    const currentStyle = el.getAttribute('style');
+    
+    if (currentStyle) {
+      const newStyles = [];
+      allowedStyles.forEach(prop => {
+        const value = el.style.getPropertyValue(prop);
+        if (value) {
+          newStyles.push(`${prop}: ${value}`);
+        }
+      });
+      
+      if (newStyles.length > 0) {
+        el.setAttribute('style', newStyles.join('; '));
+      } else {
+        el.removeAttribute('style');
+      }
+    }
+    
+    // 移除不需要的属性
+    const attributesToRemove = ['class', 'id', 'data-*', 'onclick', 'onload'];
+    attributesToRemove.forEach(attr => {
+      if (attr.includes('*')) {
+        // 移除以特定前缀开头的属性
+        const prefix = attr.replace('*', '');
+        Array.from(el.attributes).forEach(attribute => {
+          if (attribute.name.startsWith(prefix)) {
+            el.removeAttribute(attribute.name);
+          }
+        });
+      } else {
+        el.removeAttribute(attr);
+      }
+    });
+  });
+  
+  return tempDiv.innerHTML;
+}
+
+// 将纯文本转换为HTML
+function plainTextToHtml(text) {
+  // 按行分割文本
+  const lines = text.split('\n');
+  const htmlLines = lines.map(line => {
+    if (line.trim() === '') {
+      return '<br>';
+    } else {
+      return `<p>${line}</p>`;
+    }
+  });
+  
+  return htmlLines.join('');
+}
+
+
+
+// 编辑器相关变量
+
+
+
+
+
+
+
