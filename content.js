@@ -20,6 +20,10 @@ window.addEventListener('load', function() {
       console.log('Editor was previously visible, recreating it');
       createEditor();
       showEditor();
+      // 延迟更新标题，确保编辑器完全创建完成
+      setTimeout(() => {
+        updateTitle();
+      }, 100);
     }
   });
   
@@ -96,10 +100,10 @@ function createEditor() {
     editorWrapper.id = 'floating-md-editor';
     editorWrapper.className = 'floating-md-editor';
     
-    // 立即设置无边框样式
-    editorWrapper.style.border = 'none';
+    // 设置苹果风格的边框样式
+    editorWrapper.style.border = '1px solid #d1d1d1';
     editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)';
-    editorWrapper.style.borderRadius = '5px';
+    editorWrapper.style.borderRadius = '8px';
     editorWrapper.style.overflow = 'hidden';
     
     // 设置初始位置和样式 - 更大的尺寸
@@ -114,10 +118,10 @@ function createEditor() {
     // 创建简化版标题栏
     const toolbar = document.createElement('div');
     toolbar.className = 'md-toolbar md-toolbar-minimal';
-    toolbar.style.height = '12px';
-    toolbar.style.padding = '2px';
+    toolbar.style.height = '30px';
+    toolbar.style.padding = '5px';
     toolbar.style.cursor = 'move'; // 整个顶部区域都可拖动
-    toolbar.style.opacity = '0'; // 初始状态隐藏
+    toolbar.style.opacity = '1'; // 始终显示
     toolbar.style.position = 'absolute'; // 使用绝对定位
     toolbar.style.top = '0';
     toolbar.style.left = '0';
@@ -125,61 +129,106 @@ function createEditor() {
     toolbar.style.zIndex = '2'; // 确保在编辑区域上方
     toolbar.style.border = 'none';
     toolbar.style.borderBottom = 'none';
+    toolbar.style.backgroundColor = '#f6f6f6'; // 更接近苹果风格的背景色
+    toolbar.style.borderRadius = '7px 7px 0 0'; // 顶部圆角，配合8px的外边框
+    toolbar.style.borderBottom = '1px solid #e5e5e5'; // 底部分割线
     
-    // 添加隐藏式关闭按钮
+    // 创建macOS风格的按钮容器
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.position = 'absolute';
+    buttonContainer.style.left = '12px';
+    buttonContainer.style.top = '50%';
+    buttonContainer.style.transform = 'translateY(-50%)';
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '8px';
+    buttonContainer.style.alignItems = 'center';
+    
+    // 添加关闭按钮 (红色)
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'md-close md-close-hidden';
-    closeBtn.textContent = '×';
+    closeBtn.className = 'md-close';
+    closeBtn.textContent = '✕';
     closeBtn.title = '关闭编辑器';
-    closeBtn.style.position = 'absolute';
-    closeBtn.style.right = '10px';
-    closeBtn.style.top = '5px';
-    closeBtn.style.background = 'transparent';
+    closeBtn.style.width = '12px';
+    closeBtn.style.height = '12px';
+    closeBtn.style.borderRadius = '50%';
     closeBtn.style.border = 'none';
-    closeBtn.style.fontSize = '18px';
+    closeBtn.style.backgroundColor = '#ff5f56';
+    closeBtn.style.color = 'transparent'; // 默认透明，不显示图标
+    closeBtn.style.fontSize = '10px';
     closeBtn.style.fontWeight = 'bold';
-    closeBtn.style.color = '#ff3333';
-    closeBtn.style.display = 'none';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.style.display = 'flex';
+    closeBtn.style.alignItems = 'center';
+    closeBtn.style.justifyContent = 'center';
+    closeBtn.style.lineHeight = '1';
+    closeBtn.style.padding = '0';
+    closeBtn.style.transition = 'all 0.2s ease';
     closeBtn.addEventListener('click', hideEditor);
-    toolbar.appendChild(closeBtn);
+    closeBtn.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = '#ff453a';
+      this.style.color = '#4c0000'; // 悬浮时显示图标
+      this.style.transform = 'scale(1.1)';
+    });
+    closeBtn.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = '#ff5f56';
+      this.style.color = 'transparent'; // 离开时隐藏图标
+      this.style.transform = 'scale(1)';
+    });
+    buttonContainer.appendChild(closeBtn);
     
-
-    
-    // 添加导出按钮
+    // 添加导出按钮 (绿色，替代最大化按钮)
     const exportBtn = document.createElement('button');
     exportBtn.className = 'md-export';
     exportBtn.textContent = '⬆';
     exportBtn.title = '导出为Markdown';
-    exportBtn.style.position = 'absolute';
-    exportBtn.style.right = '36px';
-    exportBtn.style.top = '5px';
-    exportBtn.style.background = 'transparent';
+    exportBtn.style.width = '12px';
+    exportBtn.style.height = '12px';
+    exportBtn.style.borderRadius = '50%';
     exportBtn.style.border = 'none';
-    exportBtn.style.fontSize = '18px';
+    exportBtn.style.backgroundColor = '#007AFF';
+    exportBtn.style.color = 'transparent'; // 默认透明，不显示图标
+    exportBtn.style.fontSize = '8px';
     exportBtn.style.fontWeight = 'bold';
-    exportBtn.style.color = '#4285f4';
-    exportBtn.style.display = 'none';
+    exportBtn.style.cursor = 'pointer';
+    exportBtn.style.display = 'flex';
+    exportBtn.style.alignItems = 'center';
+    exportBtn.style.justifyContent = 'center';
+    exportBtn.style.lineHeight = '1';
+    exportBtn.style.padding = '0';
+    exportBtn.style.transition = 'all 0.2s ease';
     exportBtn.addEventListener('click', exportMarkdown);
-    toolbar.appendChild(exportBtn);
-    
-    // 鼠标悬停时显示控制按钮
-    toolbar.addEventListener('mouseenter', function() {
-      closeBtn.style.display = 'block';
-      exportBtn.style.display = 'block';
-      toolbar.style.opacity = '1';
-      toolbar.style.height = '20px';
-      toolbar.style.padding = '4px';
+    exportBtn.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = '#0056CC';
+      this.style.color = '#ffffff'; // 悬浮时显示图标
+      this.style.transform = 'scale(1.1)';
     });
-    
-    toolbar.addEventListener('mouseleave', function() {
-      closeBtn.style.display = 'none';
-      exportBtn.style.display = 'none';
-      if (!isDragging) {
-        toolbar.style.opacity = '0';
-        toolbar.style.height = '12px';
-        toolbar.style.padding = '2px';
-      }
+    exportBtn.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = '#007AFF';
+      this.style.color = 'transparent'; // 离开时隐藏图标
+      this.style.transform = 'scale(1)';
     });
+    buttonContainer.appendChild(exportBtn);
+    
+    toolbar.appendChild(buttonContainer);
+    
+    // 添加标题文字 (居中显示)
+    const titleText = document.createElement('span');
+    titleText.id = 'md-title-text';
+    titleText.textContent = '笔记';
+    titleText.style.position = 'absolute';
+    titleText.style.left = '50%';
+    titleText.style.top = '50%';
+    titleText.style.transform = 'translate(-50%, -50%)';
+    titleText.style.fontSize = '13px';
+    titleText.style.color = '#666';
+    titleText.style.fontWeight = '500';
+    titleText.style.userSelect = 'none';
+    titleText.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    titleText.style.maxWidth = '200px'; // 限制最大宽度
+    titleText.style.overflow = 'hidden'; // 超出隐藏
+    titleText.style.textOverflow = 'ellipsis'; // 显示省略号
+    titleText.style.whiteSpace = 'nowrap'; // 不换行
+    toolbar.appendChild(titleText);
     
     // 创建富文本编辑区域
     const editor = document.createElement('div');
@@ -188,7 +237,7 @@ function createEditor() {
     editor.style.height = '100%'; // 让编辑区域占据整个容器
     editor.style.width = '100%';
     editor.style.padding = '10px';
-    editor.style.paddingTop = '24px'; // 为工具栏预留空间
+    editor.style.paddingTop = '40px'; // 为更高的工具栏预留空间
     editor.style.overflowY = 'auto';
     editor.style.display = 'block';
     editor.style.position = 'relative';
@@ -240,21 +289,7 @@ function createEditor() {
     const resizeHandles = createResizeHandles();
     resizeHandles.forEach(handle => editorWrapper.appendChild(handle));
     
-    // 当鼠标移到顶部区域时显示工具栏
-    editor.addEventListener('mousemove', function(e) {
-      const rect = editor.getBoundingClientRect();
-      // 如果鼠标在顶部30px区域内
-      if (e.clientY - rect.top < 30) {
-        toolbar.style.opacity = '1';
-        toolbar.style.height = '20px';
-        toolbar.style.padding = '4px';
-      } else if (!toolbar.matches(':hover') && !isDragging) {
-        // 如果鼠标不在工具栏上且不是拖动状态，隐藏工具栏
-        toolbar.style.opacity = '0';
-        toolbar.style.height = '12px';
-        toolbar.style.padding = '2px';
-      }
-    });
+    // 工具栏现在始终显示，不需要鼠标悬停控制
     
     // 处理占位符
     // 处理输入事件
@@ -268,6 +303,9 @@ function createEditor() {
       } else {
         this.removeAttribute('data-placeholder');
       }
+      
+      // 动态更新标题
+      updateTitle();
     });
     
     // 处理焦点事件
@@ -318,6 +356,9 @@ function createEditor() {
         // 更新内容
         editorContent = this.innerHTML;
         saveEditorContent();
+        
+        // 更新标题
+        updateTitle();
       }
       
       // Enter键处理，确保有合适的段落结构
@@ -326,6 +367,7 @@ function createEditor() {
         setTimeout(() => {
           editorContent = this.innerHTML;
           saveEditorContent();
+          updateTitle();
         }, 0);
       }
     });
@@ -382,9 +424,11 @@ function createEditor() {
     // 编辑器已创建，无需额外处理
     console.log('Rich text editor created successfully');
     
-    // 最后确认一次所有元素无边框
+    // 确保苹果风格样式正确应用
     setTimeout(() => {
-      removeAllBorders();
+      editorWrapper.style.border = '1px solid #d1d1d1';
+      // 初始化标题显示
+      updateTitle();
     }, 50);
     
     // 防止页面样式影响编辑器
@@ -438,8 +482,12 @@ function addIsolationStyles() {
   // 创建一个样式元素
   const style = document.createElement('style');
   style.textContent = `
-    #floating-md-editor, 
-    #floating-md-editor * {
+    #floating-md-editor {
+      border: 1px solid #d1d1d1 !important;
+      outline: none !important;
+    }
+    
+    #floating-md-editor .md-editor {
       border: none !important;
       outline: none !important;
       box-shadow: none !important;
@@ -464,7 +512,7 @@ function addIsolationStyles() {
       pointer-events: none;
       position: absolute;
       left: 10px;
-      top: 24px;
+      top: 40px;
       font-size: 14px;
       line-height: 1.6;
     }
@@ -560,21 +608,15 @@ function implementDrag(handle) {
     if (isDragging) {
       console.log('Stopped dragging');
       handle.style.cursor = 'move';
-      
-      // 拖动结束后，如果鼠标不在工具栏上，则隐藏工具栏
-      if (!handle.matches(':hover')) {
-        handle.style.opacity = '0';
-        handle.style.height = '12px';
-        handle.style.padding = '2px';
-      }
+      // 工具栏始终显示，不需要隐藏
     }
     isDragging = false;
     
     // 结束调整大小
     stopResize();
     
-    // 确保边框被移除
-    editorWrapper.style.border = 'none';
+    // 确保保持苹果风格边框
+    editorWrapper.style.border = '1px solid #d1d1d1';
     editorWrapper.style.outline = 'none';
     const editorElement = editorWrapper.querySelector('.md-editor');
     if (editorElement) {
@@ -664,41 +706,74 @@ function exportMarkdown() {
   }
 }
 
-// 从第一行文字提取文件名
-function getFileNameFromFirstLine(htmlContent) {
+// 动态更新标题函数
+function updateTitle() {
+  const titleElement = document.getElementById('md-title-text');
+  if (!titleElement || !editorWrapper) return;
+  
+  const editor = editorWrapper.querySelector('.md-editor');
+  if (!editor) return;
+  
+  // 获取编辑器的第一行内容
+  const firstLineText = getFirstLineText(editor.innerHTML);
+  
+  if (firstLineText && firstLineText.trim()) {
+    // 如果有内容，显示第一行（限制长度）
+    const truncatedText = firstLineText.length > 20 ? 
+      firstLineText.substring(0, 20) + '...' : firstLineText;
+    titleElement.textContent = truncatedText;
+    titleElement.title = firstLineText; // 完整内容作为tooltip
+  } else {
+    // 如果没有内容，显示默认标题
+    titleElement.textContent = '笔记';
+    titleElement.title = '';
+  }
+}
+
+// 提取第一行文本内容
+function getFirstLineText(htmlContent) {
+  if (!htmlContent || htmlContent.trim() === '') return '';
+  
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = htmlContent;
   
-  // 获取第一行文字内容
-  const firstChild = tempDiv.firstChild;
-  let firstLineText = '';
+  // 获取第一个有内容的文本节点或元素
+  const walker = document.createTreeWalker(
+    tempDiv,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
   
-  if (firstChild) {
-    if (firstChild.nodeType === Node.TEXT_NODE) {
-      firstLineText = firstChild.textContent.trim();
-    } else if (firstChild.nodeType === Node.ELEMENT_NODE) {
-      firstLineText = firstChild.textContent.trim();
+  let firstText = '';
+  let node;
+  while (node = walker.nextNode()) {
+    const text = node.textContent.trim();
+    if (text) {
+      firstText = text;
+      break;
     }
   }
   
-  // 如果第一行为空，尝试获取第一个非空文本节点
-  if (!firstLineText) {
-    const walker = document.createTreeWalker(
-      tempDiv,
-      NodeFilter.SHOW_TEXT,
-      null,
-      false
-    );
-    
-    let node;
-    while (node = walker.nextNode()) {
-      const text = node.textContent.trim();
-      if (text) {
-        firstLineText = text;
-        break;
-      }
+  // 如果没有找到文本节点，尝试从第一个元素获取
+  if (!firstText) {
+    const firstElement = tempDiv.querySelector('p, div, h1, h2, h3, h4, h5, h6, span');
+    if (firstElement) {
+      firstText = firstElement.textContent.trim();
     }
   }
+  
+  // 只获取第一行（按换行符分割）
+  if (firstText) {
+    firstText = firstText.split('\n')[0].trim();
+  }
+  
+  return firstText;
+}
+
+// 从第一行文字提取文件名
+function getFileNameFromFirstLine(htmlContent) {
+  let firstLineText = getFirstLineText(htmlContent);
   
   // 清理文件名，移除不允许的字符
   if (firstLineText) {
@@ -828,7 +903,8 @@ function clearEditor() {
     if (editorWrapper) {
       const editor = editorWrapper.querySelector('.md-editor');
       if (editor) {
-        editor.innerHTML = '<p style="color: #999;">在此输入内容或粘贴富文本...</p>';
+        editor.innerHTML = '';
+        editor.setAttribute('data-placeholder', '在此输入内容或粘贴富文本...');
         console.log('Editor content cleared');
       } else {
         console.log('Editor element not found');
@@ -837,6 +913,9 @@ function clearEditor() {
       console.log('Editor wrapper not found');
     }
     saveEditorContent();
+    
+    // 更新标题
+    updateTitle();
   } else {
     console.log('Clear operation cancelled by user');
   }
@@ -1037,6 +1116,9 @@ function handleRichTextPaste(e, editor) {
   // 更新编辑器内容
   editorContent = editor.innerHTML;
   saveEditorContent();
+  
+  // 更新标题
+  updateTitle();
 }
 
 // 在光标位置插入HTML内容
