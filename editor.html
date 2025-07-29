@@ -61,10 +61,15 @@
       <button id="btn-quote">引用</button>
       <button id="btn-list">列表</button>
       <button id="btn-checklist">任务列表</button>
+      <button id="btn-image">图片</button>
+      <button id="btn-preview">预览</button>
       <button id="btn-export" style="margin-left: auto;">导出</button>
+      <input type="file" id="image-file-input" accept="image/*" style="display: none;">
     </div>
     <textarea id="editor" placeholder="在此输入Markdown文本..."></textarea>
+    <div id="preview" style="display: none; flex-grow: 1; padding: 10px; overflow-y: auto; background-color: #fafafa; border-left: 1px solid #ccc;"></div>
   </div>
+  <script src="marked.min.js"></script>
   <script src="editor.js"></script>
 </body>
 </html> 

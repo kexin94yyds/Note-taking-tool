@@ -330,8 +330,29 @@ function createEditor() {
     
     // 监听粘贴事件
     editor.addEventListener('paste', function(e) {
-      console.log('Rich text paste event triggered');
-      handleRichTextPaste(e, editor);
+      console.log('Paste event triggered');
+      
+      // 检查是否包含图片
+      const items = e.clipboardData.items;
+      let hasImage = false;
+      
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          hasImage = true;
+          const file = item.getAsFile();
+          if (file) {
+            handleImagePaste(file, editor);
+          }
+          break;
+        }
+      }
+      
+      if (!hasImage) {
+        console.log('Rich text paste event triggered');
+        handleRichTextPaste(e, editor);
+      }
     });
     
     // 键盘事件处理
@@ -409,6 +430,36 @@ function createEditor() {
         return false;
       }
     }, { passive: false });
+    
+    // 添加拖拽事件监听
+    editor.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      editor.style.backgroundColor = '#f0f8ff';
+    });
+    
+    editor.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      editor.style.backgroundColor = '';
+    });
+    
+    editor.addEventListener('drop', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      editor.style.backgroundColor = '';
+      
+      const files = e.dataTransfer.files;
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        if (file.type.startsWith('image/')) {
+          handleImagePaste(file, editor);
+          break; // 只处理第一个图片文件
+        }
+      }
+    });
     
     editorWrapper.appendChild(editor);
     editorWrapper.appendChild(toolbar); // 工具栏放在后面，确保显示在上层
@@ -1223,6 +1274,178 @@ function plainTextToHtml(text) {
 }
 
 
+
+// 图片处理功能
+async function handleImagePaste(file, editor) {
+  try {
+    console.log('处理图片粘贴:', file.name, file.type);
+    
+    // 压缩并转换为data URL
+    const dataUrl = await compressImage(file);
+    
+    // 生成唯一的图片名称
+    const fileName = generateImageName(file.name);
+    
+    // 存储图片数据
+    await storeImageData(fileName, dataUrl);
+    
+    // 创建图片元素并插入到编辑器
+    const imgElement = document.createElement('img');
+    imgElement.src = dataUrl;
+    imgElement.alt = fileName;
+    imgElement.style.maxWidth = '100%';
+    imgElement.style.height = 'auto';
+    imgElement.style.cursor = 'pointer';
+    imgElement.title = '点击放大查看';
+    
+    // 添加点击放大功能
+    imgElement.addEventListener('click', function() {
+      showImageModal(dataUrl, fileName);
+    });
+    
+    // 插入图片到编辑器
+    insertElementAtCursor(editor, imgElement);
+    
+    // 更新编辑器内容
+    editorContent = editor.innerHTML;
+    saveEditorContent();
+    updateTitle();
+    
+    console.log('图片插入成功');
+    
+  } catch (error) {
+    console.error('插入图片失败:', error);
+    alert('插入图片失败，请重试');
+  }
+}
+
+// 压缩图片
+function compressImage(file, maxWidth = 800, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = function() {
+      // 计算压缩后的尺寸
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = (height * maxWidth) / width;
+        width = maxWidth;
+      }
+      
+      // 设置画布尺寸
+      canvas.width = width;
+      canvas.height = height;
+      
+      // 绘制压缩后的图片
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // 转换为data URL
+      const dataUrl = canvas.toDataURL(file.type, quality);
+      resolve(dataUrl);
+    };
+    
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// 生成图片名称
+function generateImageName(originalName) {
+  const timestamp = Date.now();
+  const extension = originalName.split('.').pop() || 'png';
+  return `image_${timestamp}.${extension}`;
+}
+
+// 存储图片数据
+async function storeImageData(fileName, dataUrl) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(['imageData'], function(result) {
+      const imageData = result.imageData || {};
+      imageData[fileName] = dataUrl;
+      
+      chrome.storage.local.set({ imageData }, function() {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+}
+
+// 在光标位置插入元素
+function insertElementAtCursor(editor, element) {
+  editor.focus();
+  
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    
+    // 清除占位符属性
+    editor.removeAttribute('data-placeholder');
+    
+    // 删除选中的内容
+    range.deleteContents();
+    
+    // 添加换行符以确保图片在新行显示
+    const br1 = document.createElement('br');
+    const br2 = document.createElement('br');
+    
+    range.insertNode(br2);
+    range.insertNode(element);
+    range.insertNode(br1);
+    
+    // 移动光标到插入内容后面
+    range.setStartAfter(br2);
+    range.setEndAfter(br2);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } else {
+    // 如果没有选择范围，直接添加到末尾
+    const br = document.createElement('br');
+    editor.appendChild(br);
+    editor.appendChild(element);
+    editor.appendChild(document.createElement('br'));
+    editor.removeAttribute('data-placeholder');
+  }
+}
+
+// 图片模态框显示
+function showImageModal(src, alt) {
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+  `;
+  
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = alt;
+  img.style.cssText = `
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+  `;
+  
+  modal.appendChild(img);
+  document.body.appendChild(modal);
+  
+  modal.addEventListener('click', function() {
+    document.body.removeChild(modal);
+  });
+}
 
 // 编辑器相关变量
 

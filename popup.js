@@ -63,6 +63,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
+  // 打开独立编辑器
+  document.getElementById('openStandaloneEditor').addEventListener('click', function() {
+    console.log('Open standalone editor button clicked');
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('editor.html')
+    });
+  });
+
   // 导出Markdown文件
   document.getElementById('exportMarkdown').addEventListener('click', function() {
     console.log('Export button clicked');
