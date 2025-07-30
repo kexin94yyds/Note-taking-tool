@@ -1280,8 +1280,8 @@ async function handleImagePaste(file, editor) {
   try {
     console.log('处理图片粘贴:', file.name, file.type);
     
-    // 压缩并转换为data URL
-    const dataUrl = await compressImage(file);
+    // 压缩并转换为data URL - 对截图使用最高质量设置
+    const dataUrl = await compressImage(file, 2560, 0.98);
     
     // 生成唯一的图片名称
     const fileName = generateImageName(file.name);
@@ -1319,8 +1319,8 @@ async function handleImagePaste(file, editor) {
   }
 }
 
-// 压缩图片
-function compressImage(file, maxWidth = 800, quality = 0.8) {
+// 压缩图片 - 保持高清质量
+function compressImage(file, maxWidth = 1920, quality = 0.95) {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -1329,6 +1329,8 @@ function compressImage(file, maxWidth = 800, quality = 0.8) {
     img.onload = function() {
       // 计算压缩后的尺寸
       let { width, height } = img;
+      
+      // 只有在图片宽度真的很大时才进行尺寸压缩
       if (width > maxWidth) {
         height = (height * maxWidth) / width;
         width = maxWidth;
@@ -1338,11 +1340,19 @@ function compressImage(file, maxWidth = 800, quality = 0.8) {
       canvas.width = width;
       canvas.height = height;
       
-      // 绘制压缩后的图片
+      // 使用高质量绘制设置
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // 绘制图片
       ctx.drawImage(img, 0, 0, width, height);
       
+      // 对于PNG格式使用无损压缩，其他格式使用高质量压缩
+      const outputType = file.type === 'image/png' ? 'image/png' : file.type;
+      const outputQuality = file.type === 'image/png' ? 1.0 : quality;
+      
       // 转换为data URL
-      const dataUrl = canvas.toDataURL(file.type, quality);
+      const dataUrl = canvas.toDataURL(outputType, outputQuality);
       resolve(dataUrl);
     };
     
