@@ -75,13 +75,22 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     toggleEditor();
     sendResponse({status: "toggled", visible: isEditorVisible});
   } else if (request.action === "exportMarkdown") {
-    console.log('Exporting markdown');
-    exportMarkdown();
-    sendResponse({status: "exported"});
+    console.log('Exporting markdown with file library support');
+    // 支持本地文件库的导出功能
+    const customPath = request.customPath || null;
+    const modeName = request.modeName || '默认';
+    exportMarkdown(customPath, modeName);
+    sendResponse({status: "exported", customPath: customPath, modeName: modeName});
   } else if (request.action === "clearEditor") {
     console.log('Clearing editor');
     clearEditor();
     sendResponse({status: "cleared"});
+  } else if (request.action === "resetDirectoryHandle") {
+    console.log('Resetting directory handle for mode:', request.modeName);
+    removeSavedDirectoryHandle(request.modeName).then(() => {
+      sendResponse({status: "reset", modeName: request.modeName});
+    });
+    return true; // 保持消息通道开放以支持异步响应
   }
   return true;
 });
@@ -154,7 +163,7 @@ function createEditor() {
     closeBtn.style.border = 'none';
     closeBtn.style.backgroundColor = '#ff5f56';
     closeBtn.style.color = 'transparent'; // 默认透明，不显示图标
-    closeBtn.style.fontSize = '10px';
+    closeBtn.style.fontSize = '8px';
     closeBtn.style.fontWeight = 'bold';
     closeBtn.style.cursor = 'pointer';
     closeBtn.style.display = 'flex';
@@ -176,7 +185,7 @@ function createEditor() {
     });
     buttonContainer.appendChild(closeBtn);
     
-    // 添加导出按钮 (绿色，替代最大化按钮)
+    // 添加导出按钮 (蓝色，替代最大化按钮)
     const exportBtn = document.createElement('button');
     exportBtn.className = 'md-export';
     exportBtn.textContent = '⬆';
@@ -196,7 +205,10 @@ function createEditor() {
     exportBtn.style.lineHeight = '1';
     exportBtn.style.padding = '0';
     exportBtn.style.transition = 'all 0.2s ease';
-    exportBtn.addEventListener('click', exportMarkdown);
+    exportBtn.addEventListener('click', function() {
+      // 使用与插件导出相同的逻辑
+      exportMarkdownWithCurrentMode();
+    });
     exportBtn.addEventListener('mouseenter', function() {
       this.style.backgroundColor = '#0056CC';
       this.style.color = '#ffffff'; // 悬浮时显示图标
@@ -208,6 +220,41 @@ function createEditor() {
       this.style.transform = 'scale(1)';
     });
     buttonContainer.appendChild(exportBtn);
+    
+    // 添加清理缓存按钮 (黄色)
+    const clearCacheBtn = document.createElement('button');
+    clearCacheBtn.className = 'md-clear-cache';
+    clearCacheBtn.textContent = '🗑';
+    clearCacheBtn.title = '清理图片缓存';
+    clearCacheBtn.style.width = '12px';
+    clearCacheBtn.style.height = '12px';
+    clearCacheBtn.style.borderRadius = '50%';
+    clearCacheBtn.style.border = 'none';
+    clearCacheBtn.style.backgroundColor = '#FFD60A';
+    clearCacheBtn.style.color = 'transparent'; // 默认透明，不显示图标
+    clearCacheBtn.style.fontSize = '8px';
+    clearCacheBtn.style.fontWeight = 'bold';
+    clearCacheBtn.style.cursor = 'pointer';
+    clearCacheBtn.style.display = 'flex';
+    clearCacheBtn.style.alignItems = 'center';
+    clearCacheBtn.style.justifyContent = 'center';
+    clearCacheBtn.style.lineHeight = '1';
+    clearCacheBtn.style.padding = '0';
+    clearCacheBtn.style.transition = 'all 0.2s ease';
+    clearCacheBtn.addEventListener('click', function() {
+      showStorageStatus();
+    });
+    clearCacheBtn.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = '#FF9500';
+      this.style.color = '#4c0000'; // 悬浮时显示图标
+      this.style.transform = 'scale(1.1)';
+    });
+    clearCacheBtn.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = '#FFD60A';
+      this.style.color = 'transparent'; // 离开时隐藏图标
+      this.style.transform = 'scale(1)';
+    });
+    buttonContainer.appendChild(clearCacheBtn);
     
     toolbar.appendChild(buttonContainer);
     
@@ -229,6 +276,10 @@ function createEditor() {
     titleText.style.textOverflow = 'ellipsis'; // 显示省略号
     titleText.style.whiteSpace = 'nowrap'; // 不换行
     toolbar.appendChild(titleText);
+    
+    // 添加模式切换按钮 (右侧)
+    const modeSwitcher = createModeSwitcher();
+    toolbar.appendChild(modeSwitcher);
     
     // 创建富文本编辑区域
     const editor = document.createElement('div');
@@ -725,9 +776,11 @@ function saveEditorContent() {
   chrome.storage.local.set({editorContent: editorContent});
 }
 
-// 导出 Markdown 文件
-function exportMarkdown() {
-  console.log('Export Markdown called');
+// 导出 Markdown 文件 - 支持本地文件库路径
+async function exportMarkdown(customPath = null, modeName = '默认') {
+  console.log('Export Markdown called with path:', customPath, 'mode:', modeName);
+  console.log('File System Access API support:', 'showDirectoryPicker' in window);
+  
   if (!editorContent.trim() || editorContent.includes('color: #999')) {
     console.log('No content to export');
     alert('编辑器中没有内容可导出！');
@@ -738,23 +791,407 @@ function exportMarkdown() {
     // 将 HTML 内容转换为 Markdown 格式
     const markdownContent = htmlToMarkdown(editorContent);
     
-    const blob = new Blob([markdownContent], {type: 'text/markdown'});
-    const url = URL.createObjectURL(blob);
-    
-    const downloadLink = document.createElement('a');
-    downloadLink.href = url;
-    
     // 从第一行文字提取文件名
     const fileName = getFileNameFromFirstLine(editorContent);
-    downloadLink.download = fileName;
-    downloadLink.click();
-    console.log('Markdown file downloaded:', fileName);
     
-    URL.revokeObjectURL(url);
+    // 如果有自定义路径，尝试使用 File System Access API
+    if (customPath) {
+      console.log('Attempting to save to custom path:', customPath);
+      
+      // 检查浏览器支持
+      if ('showDirectoryPicker' in window) {
+        try {
+          const success = await saveToCustomPath(markdownContent, fileName, customPath, modeName);
+          if (success) {
+            console.log('Successfully saved to custom path');
+            return;
+          }
+        } catch (error) {
+          console.log('Custom path save failed:', error.message);
+          // 显示错误提示但继续执行默认下载
+          showCustomPathError(error.message, customPath, modeName);
+        }
+      } else {
+        console.log('File System Access API not supported in this browser');
+        showApiNotSupportedError(customPath, modeName);
+      }
+    }
+    
+    // 回退到默认下载方式
+    console.log('Using fallback download method');
+    await fallbackDownload(markdownContent, fileName, customPath, modeName);
+    
   } catch (error) {
     console.error('Error exporting markdown:', error);
     alert('导出失败：' + error.message);
   }
+}
+
+// 回退下载方法
+async function fallbackDownload(content, fileName, customPath, modeName) {
+  const blob = new Blob([content], {type: 'text/markdown;charset=utf-8'});
+  
+  if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+    // IE/Edge 支持
+    window.navigator.msSaveOrOpenBlob(blob, fileName);
+    showDownloadSuccess(fileName, customPath, modeName, false);
+  } else {
+    // 现代浏览器
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    
+    downloadLink.href = url;
+    downloadLink.download = fileName;
+    downloadLink.style.display = 'none';
+    
+    document.body.appendChild(downloadLink);
+    
+    setTimeout(() => {
+      downloadLink.click();
+      
+      setTimeout(() => {
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log('Markdown file downloaded to default location:', fileName);
+      showDownloadSuccess(fileName, customPath, modeName, false);
+    }, 10);
+  }
+}
+
+// 导出到自定义路径（实验性功能）
+async function exportToCustomPath(content, fileName, customPath, modeName) {
+  try {
+    // 注意：由于浏览器安全限制，我们无法直接写入到指定路径
+    // 这里我们仍然使用下载，但会在文件名中包含路径信息作为提示
+    const blob = new Blob([content], {type: 'text/markdown'});
+    const url = URL.createObjectURL(blob);
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = fileName;
+    downloadLink.click();
+    
+    // 显示路径提示
+    showPathHint(customPath, modeName, fileName);
+    
+    URL.revokeObjectURL(url);
+    console.log('File exported with path hint:', customPath);
+  } catch (error) {
+    console.error('Error exporting to custom path:', error);
+    // 回退到普通下载
+    const blob = new Blob([content], {type: 'text/markdown'});
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = fileName;
+    downloadLink.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
+// 保存到自定义路径 - 自动保存功能
+async function saveToCustomPath(content, fileName, customPath, modeName) {
+  console.log('saveToCustomPath called for mode:', modeName, 'path:', customPath);
+  
+  try {
+    // 检查是否已经获得过该路径的访问权限
+    const savedDirectoryHandle = await getSavedDirectoryHandle(modeName);
+    
+    if (savedDirectoryHandle) {
+      console.log('Using saved directory handle for mode:', modeName);
+      try {
+        // 验证权限是否仍然有效
+        const permission = await savedDirectoryHandle.requestPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          await saveFileToDirectory(savedDirectoryHandle, fileName, content);
+          showDownloadSuccess(fileName, customPath, modeName, true);
+          console.log('File auto-saved to custom path:', customPath);
+          return true;
+        } else {
+          console.log('Permission denied, removing saved handle');
+          await removeSavedDirectoryHandle(modeName);
+        }
+      } catch (permError) {
+        console.log('Saved directory handle invalid, removing:', permError.message);
+        await removeSavedDirectoryHandle(modeName);
+      }
+    }
+    
+    // 如果没有保存的句柄或权限失效，请求用户选择目录
+    console.log('Requesting directory picker for mode:', modeName);
+    
+    if (!('showDirectoryPicker' in window)) {
+      throw new Error('File System Access API not supported in this browser');
+    }
+    
+    // 显示提示对话框
+    const shouldProceed = await showDirectorySelectionDialog(modeName, customPath);
+    if (!shouldProceed) {
+      throw new Error('User cancelled directory selection');
+    }
+    
+    const directoryHandle = await window.showDirectoryPicker({
+      mode: 'readwrite',
+      startIn: 'documents'
+    });
+    
+    // 保存目录句柄以供将来使用
+    await saveDirectoryHandle(modeName, directoryHandle);
+    
+    // 保存文件
+    await saveFileToDirectory(directoryHandle, fileName, content);
+    showDownloadSuccess(fileName, customPath, modeName, true);
+    console.log('Directory selected and file saved for mode:', modeName);
+    return true;
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('User cancelled directory selection');
+      throw new Error('用户取消了文件夹选择');
+    }
+    console.error('Error saving to custom path:', error);
+    throw error;
+  }
+}
+
+// 保存目录句柄到存储中
+async function saveDirectoryHandle(modeName, directoryHandle) {
+  try {
+    // 使用 IndexedDB 存储目录句柄（因为 chrome.storage 不支持复杂对象）
+    const request = indexedDB.open('FloatingMD_DirectoryHandles', 1);
+    
+    return new Promise((resolve, reject) => {
+      request.onerror = () => reject(request.error);
+      
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('directories')) {
+          db.createObjectStore('directories', { keyPath: 'modeName' });
+        }
+      };
+      
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        const transaction = db.transaction(['directories'], 'readwrite');
+        const store = transaction.objectStore('directories');
+        
+        store.put({
+          modeName: modeName,
+          directoryHandle: directoryHandle,
+          timestamp: Date.now()
+        });
+        
+        transaction.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        
+        transaction.onerror = () => {
+          db.close();
+          reject(transaction.error);
+        };
+      };
+    });
+  } catch (error) {
+    console.error('Error saving directory handle:', error);
+  }
+}
+
+// 获取保存的目录句柄
+async function getSavedDirectoryHandle(modeName) {
+  try {
+    const request = indexedDB.open('FloatingMD_DirectoryHandles', 1);
+    
+    return new Promise((resolve, reject) => {
+      request.onerror = () => resolve(null); // 如果出错，返回 null
+      
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('directories')) {
+          db.createObjectStore('directories', { keyPath: 'modeName' });
+        }
+      };
+      
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        const transaction = db.transaction(['directories'], 'readonly');
+        const store = transaction.objectStore('directories');
+        const getRequest = store.get(modeName);
+        
+        getRequest.onsuccess = async () => {
+          db.close();
+          const result = getRequest.result;
+          
+          if (result && result.directoryHandle) {
+            // 验证句柄是否仍然有效
+            try {
+              await result.directoryHandle.requestPermission({ mode: 'readwrite' });
+              resolve(result.directoryHandle);
+            } catch (error) {
+              // 句柄无效，删除它
+              await removeSavedDirectoryHandle(modeName);
+              resolve(null);
+            }
+          } else {
+            resolve(null);
+          }
+        };
+        
+        getRequest.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      };
+    });
+  } catch (error) {
+    console.error('Error getting directory handle:', error);
+    return null;
+  }
+}
+
+// 删除保存的目录句柄
+async function removeSavedDirectoryHandle(modeName) {
+  try {
+    const request = indexedDB.open('FloatingMD_DirectoryHandles', 1);
+    
+    return new Promise((resolve) => {
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        const transaction = db.transaction(['directories'], 'readwrite');
+        const store = transaction.objectStore('directories');
+        
+        store.delete(modeName);
+        
+        transaction.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+      };
+      
+      request.onerror = () => resolve();
+    });
+  } catch (error) {
+    console.error('Error removing directory handle:', error);
+  }
+}
+
+// 保存文件到指定目录
+async function saveFileToDirectory(directoryHandle, fileName, content) {
+  try {
+    // 创建或获取文件句柄
+    const fileHandle = await directoryHandle.getFileHandle(fileName, {
+      create: true
+    });
+    
+    // 创建可写流
+    const writable = await fileHandle.createWritable();
+    
+    // 写入内容
+    await writable.write(content);
+    
+    // 关闭文件
+    await writable.close();
+    
+    console.log('File saved successfully:', fileName);
+  } catch (error) {
+    console.error('Error saving file to directory:', error);
+    throw error;
+  }
+}
+
+// 显示下载成功提示
+function showDownloadSuccess(fileName, customPath, modeName, savedToCustomPath = false) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #27ae60;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    max-width: 350px;
+    font-size: 14px;
+    line-height: 1.4;
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  // 添加动画样式
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+  
+  if (savedToCustomPath) {
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 8px;">✅ 保存成功</div>
+      <div style="margin-bottom: 8px;">📁 ${modeName} 模式</div>
+      <div style="margin-bottom: 8px;">文件: ${fileName}</div>
+      <div style="font-size: 12px; opacity: 0.9;">已保存到您选择的位置</div>
+    `;
+  } else if (customPath) {
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 8px;">✅ 导出成功</div>
+      <div style="margin-bottom: 8px;">📁 ${modeName} 模式</div>
+      <div style="margin-bottom: 8px;">文件: ${fileName}</div>
+      <div style="font-size: 12px; opacity: 0.9;">建议移动到: ${customPath}</div>
+    `;
+  } else {
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 8px;">✅ 导出成功</div>
+      <div style="margin-bottom: 8px;">文件: ${fileName}</div>
+      <div style="font-size: 12px; opacity: 0.9;">已保存到默认下载文件夹</div>
+    `;
+  }
+  
+  document.body.appendChild(notification);
+  
+  // 4秒后自动消失
+  setTimeout(() => {
+    if (document.body.contains(notification)) {
+      notification.style.animation = 'slideOut 0.3s ease-in forwards';
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 300);
+    }
+  }, 4000);
+  
+  // 点击关闭
+  notification.addEventListener('click', () => {
+    if (document.body.contains(notification)) {
+      notification.style.animation = 'slideOut 0.3s ease-in forwards';
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 300);
+    }
+  });
+  
+  // 添加滑出动画
+  const slideOutStyle = document.createElement('style');
+  slideOutStyle.textContent = `
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(slideOutStyle);
+}
+
+// 显示路径提示（保留原有功能）
+function showPathHint(customPath, modeName, fileName) {
+  showDownloadSuccess(fileName, customPath, modeName);
 }
 
 // 动态更新标题函数
@@ -1280,8 +1717,8 @@ async function handleImagePaste(file, editor) {
   try {
     console.log('处理图片粘贴:', file.name, file.type);
     
-    // 压缩并转换为data URL - 对截图使用最高质量设置
-    const dataUrl = await compressImage(file, 2560, 0.98);
+    // 压缩并转换为data URL - 使用优化的压缩设置
+    const dataUrl = await compressImage(file);
     
     // 生成唯一的图片名称
     const fileName = generateImageName(file.name);
@@ -1319,21 +1756,36 @@ async function handleImagePaste(file, editor) {
   }
 }
 
-// 压缩图片 - 保持高清质量
-function compressImage(file, maxWidth = 1920, quality = 0.95) {
+// 压缩图片 - 优化存储空间
+function compressImage(file, maxWidth = 1280, quality = 0.75) {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
     
     img.onload = function() {
-      // 计算压缩后的尺寸
+      // 计算压缩后的尺寸 - 更激进的压缩策略
       let { width, height } = img;
       
-      // 只有在图片宽度真的很大时才进行尺寸压缩
-      if (width > maxWidth) {
-        height = (height * maxWidth) / width;
-        width = maxWidth;
+      // 根据文件大小动态调整压缩策略
+      const fileSize = file.size;
+      let targetMaxWidth = maxWidth;
+      let targetQuality = quality;
+      
+      // 大文件使用更激进的压缩
+      if (fileSize > 2 * 1024 * 1024) { // 2MB以上
+        targetMaxWidth = 800;
+        targetQuality = 0.6;
+      } else if (fileSize > 1 * 1024 * 1024) { // 1MB以上
+        targetMaxWidth = 1024;
+        targetQuality = 0.7;
+      }
+      
+      // 计算新尺寸
+      if (width > targetMaxWidth || height > targetMaxWidth) {
+        const ratio = Math.min(targetMaxWidth / width, targetMaxWidth / height);
+        width = Math.floor(width * ratio);
+        height = Math.floor(height * ratio);
       }
       
       // 设置画布尺寸
@@ -1347,12 +1799,25 @@ function compressImage(file, maxWidth = 1920, quality = 0.95) {
       // 绘制图片
       ctx.drawImage(img, 0, 0, width, height);
       
-      // 对于PNG格式使用无损压缩，其他格式使用高质量压缩
-      const outputType = file.type === 'image/png' ? 'image/png' : file.type;
-      const outputQuality = file.type === 'image/png' ? 1.0 : quality;
+      // 统一使用JPEG格式以获得更好的压缩率（除非原图是PNG且很小）
+      let outputType = 'image/jpeg';
+      let outputQuality = targetQuality;
+      
+      // 小的PNG图片保持原格式
+      if (file.type === 'image/png' && fileSize < 500 * 1024) {
+        outputType = 'image/png';
+        outputQuality = 1.0;
+      }
       
       // 转换为data URL
       const dataUrl = canvas.toDataURL(outputType, outputQuality);
+      
+      // 检查压缩后的大小
+      const compressedSize = new Blob([dataUrl]).size;
+      const compressionRatio = ((fileSize - compressedSize) / fileSize * 100).toFixed(1);
+      
+      console.log(`图片压缩: ${fileSize} -> ${compressedSize} bytes (减少 ${compressionRatio}%)`);
+      
       resolve(dataUrl);
     };
     
@@ -1368,8 +1833,14 @@ function generateImageName(originalName) {
   return `image_${timestamp}.${extension}`;
 }
 
-// 存储图片数据
+// 存储图片数据 - 带存储空间检查
 async function storeImageData(fileName, dataUrl) {
+  // 先检查存储空间
+  const canStore = await checkStorageSpace(dataUrl);
+  if (!canStore) {
+    throw new Error('存储空间不足，请清理图片数据');
+  }
+  
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(['imageData'], function(result) {
       const imageData = result.imageData || {};
@@ -1377,10 +1848,106 @@ async function storeImageData(fileName, dataUrl) {
       
       chrome.storage.local.set({ imageData }, function() {
         if (chrome.runtime.lastError) {
+          // 如果是配额错误，尝试自动清理
+          if (chrome.runtime.lastError.message.includes('quota')) {
+            showStorageFullDialog();
+          }
           reject(chrome.runtime.lastError);
         } else {
           resolve();
         }
+      });
+    });
+  });
+}
+
+// 检查存储空间
+async function checkStorageSpace(newDataUrl) {
+  return new Promise((resolve) => {
+    chrome.storage.local.getBytesInUse(null, function(bytesInUse) {
+      const maxBytes = 5 * 1024 * 1024; // 5MB 限制
+      const newDataSize = new Blob([newDataUrl]).size;
+      const availableSpace = maxBytes - bytesInUse;
+      
+      console.log(`当前使用: ${bytesInUse} bytes, 新数据: ${newDataSize} bytes, 剩余: ${availableSpace} bytes`);
+      
+      resolve(newDataSize < availableSpace);
+    });
+  });
+}
+
+// 显示存储空间不足对话框
+function showStorageFullDialog() {
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  `;
+  
+  const dialog = document.createElement('div');
+  dialog.style.cssText = `
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    max-width: 400px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  `;
+  
+  dialog.innerHTML = `
+    <h3 style="margin-top: 0; color: #e74c3c;">⚠️ 存储空间已满</h3>
+    <p>图片存储空间已用完，需要清理后才能继续添加图片。</p>
+    <div style="margin-top: 20px;">
+      <button id="clearImages" style="background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-right: 10px; cursor: pointer;">清理所有图片</button>
+      <button id="cancelClear" style="background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">取消</button>
+    </div>
+  `;
+  
+  modal.appendChild(dialog);
+  document.body.appendChild(modal);
+  
+  // 清理按钮事件
+  dialog.querySelector('#clearImages').onclick = async () => {
+    await clearAllImages();
+    document.body.removeChild(modal);
+    alert('图片数据已清理，现在可以继续添加图片了');
+  };
+  
+  // 取消按钮事件
+  dialog.querySelector('#cancelClear').onclick = () => {
+    document.body.removeChild(modal);
+  };
+}
+
+// 清理所有图片数据
+async function clearAllImages() {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['imageData'], function() {
+      console.log('所有图片数据已清理');
+      resolve();
+    });
+  });
+}
+
+// 获取存储使用情况
+async function getStorageUsage() {
+  return new Promise((resolve) => {
+    chrome.storage.local.getBytesInUse(null, function(bytesInUse) {
+      const maxBytes = 5 * 1024 * 1024; // 5MB
+      const usagePercent = (bytesInUse / maxBytes * 100).toFixed(1);
+      resolve({
+        used: bytesInUse,
+        max: maxBytes,
+        percent: usagePercent,
+        available: maxBytes - bytesInUse
       });
     });
   });
@@ -1456,6 +2023,508 @@ function showImageModal(src, alt) {
     document.body.removeChild(modal);
   });
 }
+
+// 显示存储状态面板
+async function showStorageStatus() {
+  const usage = await getStorageUsage();
+  
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  `;
+  
+  const panel = document.createElement('div');
+  panel.style.cssText = `
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    max-width: 450px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  `;
+  
+  // 获取图片数量
+  const imageCount = await getImageCount();
+  
+  panel.innerHTML = `
+    <h3 style="margin-top: 0; color: #2c3e50;">📊 存储空间状态</h3>
+    <div style="margin: 20px 0;">
+      <div style="background: #ecf0f1; height: 20px; border-radius: 10px; margin: 10px 0; overflow: hidden;">
+        <div style="background: ${usage.percent > 80 ? '#e74c3c' : usage.percent > 60 ? '#f39c12' : '#27ae60'}; height: 100%; width: ${usage.percent}%; transition: width 0.3s;"></div>
+      </div>
+      <p style="margin: 10px 0; font-size: 14px; color: #7f8c8d;">
+        已使用: ${(usage.used / 1024 / 1024).toFixed(2)} MB / ${(usage.max / 1024 / 1024).toFixed(2)} MB (${usage.percent}%)
+      </p>
+      <p style="margin: 10px 0; font-size: 14px; color: #7f8c8d;">
+        剩余空间: ${(usage.available / 1024 / 1024).toFixed(2)} MB
+      </p>
+      <p style="margin: 10px 0; font-size: 14px; color: #7f8c8d;">
+        存储图片: ${imageCount} 张
+      </p>
+    </div>
+    <div style="margin-top: 20px;">
+      <button id="refreshStatus" style="background: #3498db; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-right: 10px; cursor: pointer;">刷新</button>
+      <button id="clearAllBtn" style="background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-right: 10px; cursor: pointer;">清理全部</button>
+      <button id="closeStatus" style="background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">关闭</button>
+    </div>
+  `;
+  
+  modal.appendChild(panel);
+  document.body.appendChild(modal);
+  
+  // 事件处理
+  panel.querySelector('#refreshStatus').onclick = () => {
+    document.body.removeChild(modal);
+    showStorageStatus(); // 重新显示
+  };
+  
+  panel.querySelector('#clearAllBtn').onclick = async () => {
+    if (confirm('确定要清理所有图片数据吗？此操作不可恢复！')) {
+      await clearAllImages();
+      document.body.removeChild(modal);
+      alert('图片数据已清理完成');
+    }
+  };
+  
+  panel.querySelector('#closeStatus').onclick = () => {
+    document.body.removeChild(modal);
+  };
+}
+
+// 显示目录选择对话框
+async function showDirectorySelectionDialog(modeName, customPath) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 10000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    `;
+    
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: white;
+      padding: 25px;
+      border-radius: 10px;
+      max-width: 450px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    `;
+    
+    dialog.innerHTML = `
+      <h3 style="margin-top: 0; color: #2c3e50;">📁 选择保存文件夹</h3>
+      <p style="margin: 15px 0; color: #7f8c8d; line-height: 1.5;">
+        您设置的 "${modeName}" 模式路径为：<br>
+        <strong>${customPath}</strong><br><br>
+        请在接下来的对话框中选择对应的文件夹，<br>
+        之后的导出将自动保存到该位置。
+      </p>
+      <div style="margin-top: 20px;">
+        <button id="proceedBtn" style="background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 5px; margin-right: 10px; cursor: pointer;">选择文件夹</button>
+        <button id="cancelBtn" style="background: #95a5a6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">取消</button>
+      </div>
+    `;
+    
+    modal.appendChild(dialog);
+    document.body.appendChild(modal);
+    
+    dialog.querySelector('#proceedBtn').onclick = () => {
+      document.body.removeChild(modal);
+      resolve(true);
+    };
+    
+    dialog.querySelector('#cancelBtn').onclick = () => {
+      document.body.removeChild(modal);
+      resolve(false);
+    };
+  });
+}
+
+// 显示自定义路径错误
+function showCustomPathError(errorMessage, customPath, modeName) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #e74c3c;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    max-width: 350px;
+    font-size: 14px;
+    line-height: 1.4;
+  `;
+  
+  notification.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 8px;">⚠️ 自定义路径保存失败</div>
+    <div style="margin-bottom: 8px;">模式: ${modeName}</div>
+    <div style="font-size: 12px; opacity: 0.9;">已回退到默认下载</div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    if (document.body.contains(notification)) {
+      document.body.removeChild(notification);
+    }
+  }, 5000);
+}
+
+// 显示API不支持错误
+function showApiNotSupportedError(customPath, modeName) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #f39c12;
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    max-width: 350px;
+    font-size: 14px;
+    line-height: 1.4;
+  `;
+  
+  notification.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 8px;">ℹ️ 浏览器不支持</div>
+    <div style="margin-bottom: 8px;">模式: ${modeName}</div>
+    <div style="font-size: 12px; opacity: 0.9;">请使用 Chrome 86+ 版本以支持自定义路径</div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    if (document.body.contains(notification)) {
+      document.body.removeChild(notification);
+    }
+  }, 6000);
+}
+
+// 创建模式切换器
+function createModeSwitcher() {
+  const switcherContainer = document.createElement('div');
+  switcherContainer.id = 'mode-switcher-container';
+  switcherContainer.style.cssText = `
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+  `;
+  
+  const switcherButton = document.createElement('button');
+  switcherButton.id = 'mode-switcher-button';
+  switcherButton.textContent = '模式';
+  switcherButton.style.cssText = `
+    background: #ff9800;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    transition: all 0.2s ease;
+  `;
+  
+  switcherButton.addEventListener('mouseenter', function() {
+    this.style.backgroundColor = '#f57c00';
+    this.style.transform = 'scale(1.05)';
+  });
+  
+  switcherButton.addEventListener('mouseleave', function() {
+    this.style.backgroundColor = '#ff9800';
+    this.style.transform = 'scale(1)';
+  });
+  
+  // 创建下拉菜单
+  const dropdown = document.createElement('div');
+  dropdown.id = 'mode-switcher-dropdown';
+  dropdown.style.cssText = `
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 1000;
+    min-width: 150px;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+  `;
+  
+  switcherButton.addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggleModeDropdown();
+  });
+  
+  switcherContainer.appendChild(switcherButton);
+  switcherContainer.appendChild(dropdown);
+  
+  // 点击外部关闭下拉菜单
+  document.addEventListener('click', function(e) {
+    if (!switcherContainer.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+  
+  // 初始化模式显示
+  updateModeSwitcherDisplay();
+  
+  return switcherContainer;
+}
+
+// 切换模式下拉菜单
+async function toggleModeDropdown() {
+  const dropdown = document.getElementById('mode-switcher-dropdown');
+  if (dropdown.style.display === 'none' || !dropdown.style.display) {
+    await loadModesIntoDropdown();
+    dropdown.style.display = 'block';
+  } else {
+    dropdown.style.display = 'none';
+  }
+}
+
+// 加载模式到下拉菜单
+async function loadModesIntoDropdown() {
+  const dropdown = document.getElementById('mode-switcher-dropdown');
+  
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['fileLibraryModes', 'currentFileLibraryMode'], function(data) {
+        resolve(data);
+      });
+    });
+    
+    const modes = result.fileLibraryModes || [{ id: 'default', name: '默认', customPath: null }];
+    const currentMode = result.currentFileLibraryMode || modes[0];
+    
+    dropdown.innerHTML = '';
+    
+    modes.forEach(mode => {
+      const modeItem = document.createElement('div');
+      modeItem.style.cssText = `
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+      `;
+      
+      const modeName = document.createElement('span');
+      modeName.textContent = mode.name;
+      modeName.style.color = '#333';
+      
+      const checkMark = document.createElement('span');
+      if (currentMode.id === mode.id) {
+        checkMark.textContent = '✓';
+        checkMark.style.color = '#4285f4';
+        checkMark.style.fontWeight = 'bold';
+        modeItem.style.backgroundColor = '#f0f8ff';
+      }
+      
+      modeItem.appendChild(modeName);
+      modeItem.appendChild(checkMark);
+      
+      modeItem.addEventListener('mouseenter', function() {
+        if (currentMode.id !== mode.id) {
+          this.style.backgroundColor = '#f5f5f5';
+        }
+      });
+      
+      modeItem.addEventListener('mouseleave', function() {
+        if (currentMode.id !== mode.id) {
+          this.style.backgroundColor = '';
+        } else {
+          this.style.backgroundColor = '#f0f8ff';
+        }
+      });
+      
+      modeItem.addEventListener('click', function() {
+        switchToMode(mode);
+      });
+      
+      dropdown.appendChild(modeItem);
+    });
+    
+  } catch (error) {
+    console.error('Error loading modes:', error);
+  }
+}
+
+// 切换到指定模式
+async function switchToMode(mode) {
+  try {
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        currentFileLibraryMode: mode
+      }, resolve);
+    });
+    
+    console.log('Switched to mode:', mode.name);
+    
+    // 更新显示
+    updateModeSwitcherDisplay();
+    
+    // 关闭下拉菜单
+    const dropdown = document.getElementById('mode-switcher-dropdown');
+    dropdown.style.display = 'none';
+    
+    // 显示切换成功提示
+    showModeChangeNotification(mode.name);
+    
+  } catch (error) {
+    console.error('Error switching mode:', error);
+  }
+}
+
+// 更新模式切换器显示
+async function updateModeSwitcherDisplay() {
+  const switcherButton = document.getElementById('mode-switcher-button');
+  if (!switcherButton) return;
+  
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['currentFileLibraryMode'], function(data) {
+        resolve(data);
+      });
+    });
+    
+    const currentMode = result.currentFileLibraryMode;
+    if (currentMode) {
+      const displayName = currentMode.name.length > 6 
+        ? currentMode.name.substring(0, 6) + '...' 
+        : currentMode.name;
+      switcherButton.textContent = displayName;
+      switcherButton.title = `当前模式: ${currentMode.name}`;
+    } else {
+      switcherButton.textContent = '模式';
+      switcherButton.title = '选择模式';
+    }
+  } catch (error) {
+    console.error('Error updating mode switcher display:', error);
+  }
+}
+
+// 显示模式切换通知
+function showModeChangeNotification(modeName) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    background: #ff9800;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 10001;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  `;
+  
+  notification.textContent = `已切换到 "${modeName}" 模式`;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    if (document.body.contains(notification)) {
+      document.body.removeChild(notification);
+    }
+  }, 2000);
+}
+
+// 导出Markdown - 使用当前模式设置
+async function exportMarkdownWithCurrentMode() {
+  console.log('Export from editor button clicked');
+  
+  // 获取当前模式信息
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['currentFileLibraryMode'], function(data) {
+        resolve(data);
+      });
+    });
+    
+    const currentMode = result.currentFileLibraryMode;
+    let customPath = null;
+    let modeName = '默认';
+    
+    if (currentMode) {
+      customPath = currentMode.customPath;
+      modeName = currentMode.name;
+    }
+    
+    console.log('Using current mode for export:', modeName, 'path:', customPath);
+    
+    // 使用相同的导出逻辑
+    await exportMarkdown(customPath, modeName);
+    
+  } catch (error) {
+    console.error('Error getting current mode:', error);
+    // 如果获取模式失败，使用默认导出
+    await exportMarkdown(null, '默认');
+  }
+}
+
+// 获取图片数量
+async function getImageCount() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['imageData'], function(result) {
+      const imageData = result.imageData || {};
+      resolve(Object.keys(imageData).length);
+    });
+  });
+}
+
+// 添加快捷键支持
+document.addEventListener('keydown', function(e) {
+  // Ctrl+Shift+S 显示存储状态
+  if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+    e.preventDefault();
+    showStorageStatus();
+  }
+  
+  // CMD+M (Mac) 或 Ctrl+M (Windows/Linux) 切换笔记显示/隐藏
+  if ((e.metaKey || e.ctrlKey) && e.key === 'm') {
+    e.preventDefault();
+    console.log('Toggle shortcut triggered');
+    
+    // 如果编辑器不存在，先创建它
+    if (!editorWrapper) {
+      createEditor();
+    }
+    
+    toggleEditor();
+  }
+});
 
 // 编辑器相关变量
 

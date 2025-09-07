@@ -27,6 +27,23 @@
     "48": "images/icon48.png",
     "128": "images/icon128.png"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["floating-editor.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "commands": {
+    "toggle-editor": {
+      "suggested_key": {
+        "default": "Ctrl+M",
+        "mac": "Command+M"
+      },
+      "description": "Toggle floating markdown editor"
+    }
+  },
   "web_accessible_resources": [
     {
       "resources": ["marked.min.js", "floating-editor.css"],

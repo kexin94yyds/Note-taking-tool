@@ -92,16 +92,21 @@ textarea:focus {
 }
 
 .md-close {
-  margin-left: 5px;
-  padding: 3px 8px;
+  margin-left: 0;
+  padding: 0;
   background-color: transparent;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 16px;
-  line-height: 16px;
+  font-size: 8px;
+  line-height: 1;
   font-weight: bold;
-  color: #ff3333;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  color: transparent;
+  transition: all 0.2s ease;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .md-close-hidden {
@@ -119,21 +124,49 @@ textarea:focus {
 }
 
 .md-export {
-  margin-left: 5px;
-  padding: 3px 8px;
+  margin-left: 0;
+  padding: 0;
   background-color: transparent;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 16px;
-  line-height: 16px;
+  font-size: 8px;
+  line-height: 1;
   font-weight: bold;
-  color: #4285f4;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  color: transparent;
+  transition: all 0.2s ease;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .md-export:hover {
   background-color: #4285f4;
   color: #fff;
+}
+
+.md-clear-cache {
+  margin-left: 0;
+  padding: 0;
+  background-color: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: bold;
+  color: transparent;
+  transition: all 0.2s ease;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.md-clear-cache:hover {
+  background-color: #FF9500;
+  color: #4c0000;
 }
 
 .md-editor {

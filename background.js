@@ -1,5 +1,39 @@
 console.log('Background script initialized');
 
+// 监听快捷键命令
+chrome.commands.onCommand.addListener(function(command) {
+  console.log('Command triggered:', command);
+  
+  if (command === 'toggle-editor') {
+    // 获取当前活动标签页
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      if (tabs.length > 0) {
+        const tab = tabs[0];
+        console.log('Toggling editor on tab:', tab.id);
+        
+        // 向当前标签页发送toggleEditor消息
+        if (tab.url && (tab.url.startsWith('http') || tab.url.startsWith('file'))) {
+          chrome.tabs.sendMessage(tab.id, {action: "toggleEditor"})
+            .catch(error => {
+              console.log('Error sending toggle message via command, attempting to inject content script first:', error);
+              
+              // 尝试注入content script然后再发送消息
+              injectContentScript(tab.id)
+                .then(() => {
+                  // 延迟一下再发送消息，确保脚本已加载
+                  setTimeout(() => {
+                    chrome.tabs.sendMessage(tab.id, {action: "toggleEditor"});
+                  }, 100);
+                });
+            });
+        } else {
+          console.log('Cannot use shortcut on this tab type:', tab.url);
+        }
+      }
+    });
+  }
+});
+
 // 监听扩展安装事件
 chrome.runtime.onInstalled.addListener(function(details) {
   console.log('Extension installed:', details);
