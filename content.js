@@ -36,12 +36,18 @@ window.addEventListener('load', function() {
       // 点击在插件内部，设置焦点
       isPluginFocused = true;
       editorWrapper.style.boxShadow = '0 5px 15px rgba(66, 133, 244, 0.3)'; // 蓝色阴影表示焦点
+      // 如果点击的是编辑区域，添加编辑器焦点类
+      const editor = editorWrapper.querySelector('.md-editor');
+      if (editor && (e.target === editor || editor.contains(e.target))) {
+        editorWrapper.classList.add('editor-focused');
+      }
       console.log('Plugin focused');
     } else {
       // 点击在插件外部，失去焦点
       isPluginFocused = false;
       if (editorWrapper) {
         editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)'; // 恢复默认阴影
+        editorWrapper.classList.remove('editor-focused');
       }
       console.log('Plugin unfocused');
     }
@@ -123,6 +129,15 @@ function createEditor() {
     editorWrapper.style.height = '600px'; // 更高
     editorWrapper.style.zIndex = '9999999';
     editorWrapper.style.backgroundColor = '#fff';
+    
+    // 阻止事件冒泡，防止影响背景页面
+    // 修复了打字和按键滚动背景页面的问题
+    const eventsToStop = ['keydown', 'keyup', 'keypress', 'mousedown', 'wheel'];
+    eventsToStop.forEach(eventName => {
+      editorWrapper.addEventListener(eventName, function(e) {
+        e.stopPropagation();
+      });
+    });
     
     // 创建简化版标题栏
     const toolbar = document.createElement('div');
@@ -256,6 +271,76 @@ function createEditor() {
     });
     buttonContainer.appendChild(clearCacheBtn);
     
+    // 添加分享按钮 (绿色)
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'md-share';
+    shareBtn.textContent = '↗';
+    shareBtn.title = '分享笔记';
+    shareBtn.style.width = '12px';
+    shareBtn.style.height = '12px';
+    shareBtn.style.borderRadius = '50%';
+    shareBtn.style.border = 'none';
+    shareBtn.style.backgroundColor = '#34C759';
+    shareBtn.style.color = 'transparent'; // 默认透明，不显示图标
+    shareBtn.style.fontSize = '8px';
+    shareBtn.style.fontWeight = 'bold';
+    shareBtn.style.cursor = 'pointer';
+    shareBtn.style.display = 'flex';
+    shareBtn.style.alignItems = 'center';
+    shareBtn.style.justifyContent = 'center';
+    shareBtn.style.lineHeight = '1';
+    shareBtn.style.padding = '0';
+    shareBtn.style.transition = 'all 0.2s ease';
+    shareBtn.addEventListener('click', function() {
+      shareNote();
+    });
+    shareBtn.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = '#30D158';
+      this.style.color = '#ffffff'; // 悬浮时显示图标
+      this.style.transform = 'scale(1.1)';
+    });
+    shareBtn.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = '#34C759';
+      this.style.color = 'transparent'; // 离开时隐藏图标
+      this.style.transform = 'scale(1)';
+    });
+    buttonContainer.appendChild(shareBtn);
+
+    // 添加一键复制按钮 (紫色)
+    const quickCopyBtn = document.createElement('button');
+    quickCopyBtn.className = 'md-quick-copy';
+    quickCopyBtn.textContent = '📋';
+    quickCopyBtn.title = '一键复制全部内容 (Ctrl+A+Ctrl+C)';
+    quickCopyBtn.style.width = '12px';
+    quickCopyBtn.style.height = '12px';
+    quickCopyBtn.style.borderRadius = '50%';
+    quickCopyBtn.style.border = 'none';
+    quickCopyBtn.style.backgroundColor = '#AF52DE';
+    quickCopyBtn.style.color = 'transparent'; // 默认透明，不显示图标
+    quickCopyBtn.style.fontSize = '8px';
+    quickCopyBtn.style.fontWeight = 'bold';
+    quickCopyBtn.style.cursor = 'pointer';
+    quickCopyBtn.style.display = 'flex';
+    quickCopyBtn.style.alignItems = 'center';
+    quickCopyBtn.style.justifyContent = 'center';
+    quickCopyBtn.style.lineHeight = '1';
+    quickCopyBtn.style.padding = '0';
+    quickCopyBtn.style.transition = 'all 0.2s ease';
+    quickCopyBtn.addEventListener('click', function() {
+      quickCopyAllContent();
+    });
+    quickCopyBtn.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = '#9A3FCD';
+      this.style.color = '#ffffff'; // 悬浮时显示图标
+      this.style.transform = 'scale(1.1)';
+    });
+    quickCopyBtn.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = '#AF52DE';
+      this.style.color = 'transparent'; // 离开时隐藏图标
+      this.style.transform = 'scale(1)';
+    });
+    buttonContainer.appendChild(quickCopyBtn);
+    
     toolbar.appendChild(buttonContainer);
     
     // 添加标题文字 (居中显示)
@@ -363,6 +448,7 @@ function createEditor() {
     editor.addEventListener('focus', function() {
       isPluginFocused = true;
       editorWrapper.style.boxShadow = '0 5px 15px rgba(66, 133, 244, 0.3)';
+      editorWrapper.classList.add('editor-focused');
       console.log('Plugin focused via focus event');
     });
     
@@ -372,6 +458,7 @@ function createEditor() {
         if (!editorWrapper.contains(document.activeElement)) {
           isPluginFocused = false;
           editorWrapper.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.2)';
+          editorWrapper.classList.remove('editor-focused');
           console.log('Plugin unfocused via blur event');
         }
       }, 0);
@@ -449,38 +536,6 @@ function createEditor() {
       // 如果用户滚动到底部，记录此状态
       this.isScrolledToBottom = Math.abs(this.scrollHeight - this.clientHeight - this.scrollTop) < 10;
     });
-    
-    // 阻止编辑器滚动事件冒泡到页面（只有在插件获得焦点时才允许滚动）
-    editor.addEventListener('wheel', function(e) {
-      if (!isPluginFocused) {
-        // 如果插件没有焦点，阻止滚动
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      
-      // 如果已经滚动到顶部但继续向上滚动，或者滚动到底部但继续向下滚动，则阻止事件冒泡
-      const atTop = this.scrollTop === 0;
-      const atBottom = this.scrollTop >= (this.scrollHeight - this.clientHeight);
-      
-      if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) {
-        // 在边界继续滚动时，不阻止事件，让页面可以滚动
-        return true;
-      } else {
-        // 在编辑器内部滚动时，阻止事件冒泡
-        e.stopPropagation();
-      }
-    }, { passive: false });
-    
-    // 为整个编辑器包装器添加滚动控制
-    editorWrapper.addEventListener('wheel', function(e) {
-      if (!isPluginFocused) {
-        // 如果插件没有焦点，完全阻止滚动
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    }, { passive: false });
     
     // 添加拖拽事件监听
     editor.addEventListener('dragover', function(e) {
@@ -624,42 +679,95 @@ function addIsolationStyles() {
       transition: box-shadow 0.2s ease;
     }
     
-    /* 调整大小句柄样式 */
+    /* Mac 风格调整大小句柄样式 - 更大的热区和视觉反馈 */
     .resize-handle {
       position: absolute;
       background: transparent;
       z-index: 10;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
     }
     
+    /* 悬浮时显示微妙的视觉反馈 - 只在非编辑状态时显示 */
+    .resize-handle:hover {
+      background-color: rgba(0, 122, 255, 0.1);
+    }
+    
+    /* 当编辑器获得焦点时，隐藏句柄的视觉反馈 */
+    #floating-md-editor.editor-focused .resize-handle:hover {
+      background-color: transparent;
+    }
+    
+    /* 调整大小时的视觉反馈 */
+    #floating-md-editor.resizing {
+      box-shadow: 0 5px 25px rgba(0, 122, 255, 0.3) !important;
+      transition: none !important;
+    }
+    
+    #floating-md-editor.resizing .resize-handle:hover {
+      background-color: rgba(0, 122, 255, 0.2);
+    }
+    
+    /* 边缘句柄 - 更大的热区，悬浮时显示光标 */
     .resize-handle-n, .resize-handle-s {
-      left: 10px; right: 10px; height: 5px;
+      left: 0; right: 0; height: 8px;
+    }
+    
+    .resize-handle-n:hover, .resize-handle-s:hover {
       cursor: ns-resize;
     }
     
     .resize-handle-e, .resize-handle-w {
-      top: 10px; bottom: 10px; width: 5px;
+      top: 0; bottom: 0; width: 8px;
+    }
+    
+    .resize-handle-e:hover, .resize-handle-w:hover {
       cursor: ew-resize;
     }
     
-    .resize-handle-n { top: -2px; }
-    .resize-handle-s { bottom: -2px; }
-    .resize-handle-e { right: -2px; }
-    .resize-handle-w { left: -2px; }
+    .resize-handle-n { top: -4px; }
+    .resize-handle-s { bottom: -4px; }
+    .resize-handle-e { right: -4px; }
+    .resize-handle-w { left: -4px; }
     
+    /* 角落句柄 - Mac 风格的大热区，悬浮时显示光标 */
     .resize-handle-ne, .resize-handle-sw {
-      width: 10px; height: 10px;
+      width: 20px; height: 20px;
+    }
+    
+    .resize-handle-ne:hover, .resize-handle-sw:hover {
       cursor: nesw-resize;
     }
     
     .resize-handle-nw, .resize-handle-se {
-      width: 10px; height: 10px;
+      width: 20px; height: 20px;
+    }
+    
+    .resize-handle-nw:hover, .resize-handle-se:hover {
       cursor: nwse-resize;
     }
     
-    .resize-handle-ne { top: -2px; right: -2px; }
-    .resize-handle-nw { top: -2px; left: -2px; }
-    .resize-handle-se { bottom: -2px; right: -2px; }
-    .resize-handle-sw { bottom: -2px; left: -2px; }
+    .resize-handle-ne { top: -10px; right: -10px; }
+    .resize-handle-nw { top: -10px; left: -10px; }
+    .resize-handle-se { bottom: -10px; right: -10px; }
+    .resize-handle-sw { bottom: -10px; left: -10px; }
+    
+    /* 角落句柄的视觉指示器 */
+    .resize-handle-se::after {
+      content: '';
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(-45deg, transparent 30%, #ccc 30%, #ccc 35%, transparent 35%, transparent 65%, #ccc 65%, #ccc 70%, transparent 70%);
+      opacity: 0.6;
+      border-radius: 0 0 8px 0;
+    }
+    
+    .resize-handle-se:hover::after {
+      opacity: 1;
+      background: linear-gradient(-45deg, transparent 30%, #007AFF 30%, #007AFF 35%, transparent 35%, transparent 65%, #007AFF 65%, #007AFF 70%, transparent 70%);
+    }
   `;
   
   document.head.appendChild(style);
@@ -1464,11 +1572,15 @@ function startResize(e, type) {
   
   editorWrapper.classList.add('resizing');
   
+  // 只防止文本选择，不设置全局光标
+  document.body.style.userSelect = 'none';
+  
   e.preventDefault();
   e.stopPropagation();
   
   console.log('Started resizing:', type);
 }
+
 
 // 处理调整大小
 function handleResize(e) {
@@ -1524,6 +1636,10 @@ function stopResize() {
     isResizing = false;
     resizeType = '';
     editorWrapper.classList.remove('resizing');
+    
+    // 恢复文本选择
+    document.body.style.userSelect = '';
+    
     console.log('Stopped resizing');
   }
 }
@@ -2525,6 +2641,404 @@ document.addEventListener('keydown', function(e) {
     toggleEditor();
   }
 });
+
+// 一键复制全部内容功能 (模拟 Ctrl+A + Ctrl+C，支持图片)
+async function quickCopyAllContent() {
+  console.log('Quick copy all content clicked');
+  
+  if (!editorContent.trim() || editorContent.includes('color: #999')) {
+    console.log('No content to copy');
+    showQuickCopyNotification('编辑器中没有内容可复制！', false);
+    return;
+  }
+  
+  try {
+    // 获取编辑器元素
+    const editor = editorWrapper.querySelector('.md-editor');
+    if (!editor) {
+      throw new Error('找不到编辑器元素');
+    }
+    
+    // 模拟 Ctrl+A (全选)
+    editor.focus();
+    
+    // 创建选择范围选中所有内容
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    // 检查是否支持富文本复制 (包含图片)
+    if (navigator.clipboard && navigator.clipboard.write) {
+      console.log('Attempting to copy rich content with images');
+      
+      try {
+        // 尝试复制富文本内容 (包含图片)
+        await copyRichContent(editor);
+        
+        // 统计内容
+        const textLength = editor.textContent.length;
+        const imageCount = editor.querySelectorAll('img').length;
+        let message = `已复制 ${textLength} 个字符`;
+        if (imageCount > 0) {
+          message += ` 和 ${imageCount} 张图片`;
+        }
+        message += ' 到剪贴板';
+        
+        showQuickCopyNotification(message, true);
+        
+      } catch (richCopyError) {
+        console.log('Rich copy failed, falling back to text copy:', richCopyError);
+        // 如果富文本复制失败，回退到纯文本复制
+        await copyTextOnly(selection);
+      }
+      
+    } else {
+      console.log('Rich clipboard not supported, using text copy');
+      // 不支持富文本复制，使用传统方法
+      await copyTextOnly(selection);
+    }
+    
+    // 清除选择（让用户看到复制效果后再清除）
+    setTimeout(() => {
+      selection.removeAllRanges();
+    }, 500);
+    
+  } catch (error) {
+    console.error('Quick copy failed:', error);
+    showQuickCopyNotification('复制失败：' + error.message, false);
+  }
+}
+
+// 复制富文本内容（包含图片）
+async function copyRichContent(editor) {
+  // 创建一个临时的HTML内容
+  const htmlContent = editor.innerHTML;
+  
+  // 创建 ClipboardItem 包含HTML和纯文本
+  const clipboardItems = [];
+  
+  // 添加HTML格式
+  const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+  
+  // 添加纯文本格式作为备选
+  const textContent = editor.textContent || editor.innerText || '';
+  const textBlob = new Blob([textContent], { type: 'text/plain' });
+  
+  // 创建 ClipboardItem
+  const clipboardItem = new ClipboardItem({
+    'text/html': htmlBlob,
+    'text/plain': textBlob
+  });
+  
+  clipboardItems.push(clipboardItem);
+  
+  // 尝试写入剪贴板
+  await navigator.clipboard.write(clipboardItems);
+  console.log('Rich content copied successfully');
+}
+
+// 复制纯文本内容
+async function copyTextOnly(selection) {
+  const selectedText = selection.toString();
+  
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    // 使用现代 Clipboard API
+    await navigator.clipboard.writeText(selectedText);
+    console.log('Text copied using Clipboard API');
+  } else {
+    // 回退到传统方法
+    const success = document.execCommand('copy');
+    if (!success) {
+      throw new Error('传统复制方法失败');
+    }
+    console.log('Text copied using execCommand');
+  }
+  
+  showQuickCopyNotification(`已复制 ${selectedText.length} 个字符到剪贴板`, true);
+}
+
+// 显示快速复制通知
+function showQuickCopyNotification(message, isSuccess) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${isSuccess ? '#AF52DE' : '#FF3B30'};
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 10001;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+    max-width: 300px;
+    word-wrap: break-word;
+  `;
+  
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  // 动画显示
+  setTimeout(() => {
+    notification.style.opacity = '1';
+    notification.style.transform = 'translateX(0)';
+  }, 10);
+  
+  // 自动消失
+  setTimeout(() => {
+    notification.style.opacity = '0';
+    notification.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification);
+      }
+    }, 300);
+  }, 2000);
+}
+
+// 分享笔记功能
+async function shareNote() {
+  console.log('Share note clicked');
+  
+  if (!editorContent.trim() || editorContent.includes('color: #999')) {
+    console.log('No content to share');
+    alert('编辑器中没有内容可分享！');
+    return;
+  }
+  
+  try {
+    // 将HTML内容转换为纯文本，用于分享
+    const textContent = htmlToPlainText(editorContent);
+    const firstLineText = getFirstLineText(editorContent);
+    const title = firstLineText ? firstLineText : '我的笔记';
+    
+    // 检查是否支持Web Share API
+    if (navigator.share) {
+      console.log('Using Web Share API');
+      await navigator.share({
+        title: title,
+        text: textContent,
+        url: window.location.href
+      });
+      console.log('Content shared successfully');
+    } else {
+      console.log('Web Share API not supported, showing fallback options');
+      showShareOptions(title, textContent);
+    }
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('User cancelled share');
+    } else {
+      console.error('Error sharing:', error);
+      showShareOptions(title, textContent);
+    }
+  }
+}
+
+// 将HTML转换为纯文本
+function htmlToPlainText(html) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  // 获取纯文本内容
+  let text = tempDiv.textContent || tempDiv.innerText || '';
+  
+  // 清理多余的空白字符
+  text = text.replace(/\s+/g, ' ').trim();
+  
+  return text;
+}
+
+// 显示分享选项（回退方案）
+function showShareOptions(title, content) {
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  `;
+  
+  const sharePanel = document.createElement('div');
+  sharePanel.style.cssText = `
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  `;
+  
+  sharePanel.innerHTML = `
+    <h3 style="margin-top: 0; color: #2c3e50; font-size: 18px;">📤 分享笔记</h3>
+    <p style="margin: 15px 0; color: #7f8c8d; font-size: 14px; line-height: 1.5;">
+      选择分享方式：
+    </p>
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
+      <button id="copyToClipboard" style="background: #007AFF; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        📋 复制到剪贴板
+      </button>
+      <button id="openNotes" style="background: #FFD60A; color: #1d1d1f; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        📝 打开备忘录
+      </button>
+      <button id="openMail" style="background: #34C759; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        ✉️ 通过邮件分享
+      </button>
+      <button id="openMessages" style="background: #30D158; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        💬 通过信息分享
+      </button>
+    </div>
+    <button id="closeShare" style="background: #8E8E93; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 20px; font-size: 13px;">
+      取消
+    </button>
+  `;
+  
+  modal.appendChild(sharePanel);
+  document.body.appendChild(modal);
+  
+  // 添加按钮事件
+  sharePanel.querySelector('#copyToClipboard').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      showShareSuccess('内容已复制到剪贴板');
+      document.body.removeChild(modal);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      // 回退到传统复制方法
+      fallbackCopyToClipboard(content);
+      showShareSuccess('内容已复制到剪贴板');
+      document.body.removeChild(modal);
+    }
+  };
+  
+  sharePanel.querySelector('#openNotes').onclick = () => {
+    // 尝试打开备忘录应用
+    const notesUrl = `x-apple-notes://new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(content)}`;
+    window.open(notesUrl, '_blank');
+    showShareSuccess('正在打开备忘录应用...');
+    document.body.removeChild(modal);
+  };
+  
+  sharePanel.querySelector('#openMail').onclick = () => {
+    const mailUrl = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(content)}`;
+    window.open(mailUrl, '_blank');
+    showShareSuccess('正在打开邮件应用...');
+    document.body.removeChild(modal);
+  };
+  
+  sharePanel.querySelector('#openMessages').onclick = () => {
+    const smsUrl = `sms:?body=${encodeURIComponent(title + '\n\n' + content)}`;
+    window.open(smsUrl, '_blank');
+    showShareSuccess('正在打开信息应用...');
+    document.body.removeChild(modal);
+  };
+  
+  sharePanel.querySelector('#closeShare').onclick = () => {
+    document.body.removeChild(modal);
+  };
+  
+  // 点击外部关闭
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      document.body.removeChild(modal);
+    }
+  });
+}
+
+// 传统复制到剪贴板方法（回退方案）
+function fallbackCopyToClipboard(text) {
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.style.position = 'fixed';
+  textArea.style.left = '-999999px';
+  textArea.style.top = '-999999px';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  
+  try {
+    document.execCommand('copy');
+  } catch (error) {
+    console.error('Fallback copy failed:', error);
+  }
+  
+  document.body.removeChild(textArea);
+}
+
+// 显示分享成功提示
+function showShareSuccess(message) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #34C759;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10001;
+    font-size: 14px;
+    line-height: 1.4;
+    animation: slideInShare 0.3s ease-out;
+  `;
+  
+  notification.textContent = message;
+  
+  // 添加动画样式
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideInShare {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOutShare {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+  
+  document.body.appendChild(notification);
+  
+  // 3秒后自动消失
+  setTimeout(() => {
+    if (document.body.contains(notification)) {
+      notification.style.animation = 'slideOutShare 0.3s ease-in forwards';
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 300);
+    }
+  }, 3000);
+  
+  // 点击关闭
+  notification.addEventListener('click', () => {
+    if (document.body.contains(notification)) {
+      notification.style.animation = 'slideOutShare 0.3s ease-in forwards';
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 300);
+    }
+  });
+}
 
 // 编辑器相关变量
 

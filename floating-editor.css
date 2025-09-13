@@ -169,6 +169,29 @@ textarea:focus {
   color: #4c0000;
 }
 
+.md-quick-copy {
+  margin-left: 0;
+  padding: 0;
+  background-color: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: bold;
+  color: transparent;
+  transition: all 0.2s ease;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.md-quick-copy:hover {
+  background-color: #9A3FCD;
+  color: #fff;
+}
+
 .md-editor {
   flex-grow: 1;
   padding: 10px;
