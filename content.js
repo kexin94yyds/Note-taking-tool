@@ -159,6 +159,8 @@ function createEditor() {
     
     // 创建macOS风格的按钮容器
     const buttonContainer = document.createElement('div');
+    buttonContainer.setAttribute('data-notranslate', 'true');
+    buttonContainer.setAttribute('translate', 'no');
     buttonContainer.style.position = 'absolute';
     buttonContainer.style.left = '12px';
     buttonContainer.style.top = '50%';
@@ -172,6 +174,8 @@ function createEditor() {
     closeBtn.className = 'md-close';
     closeBtn.textContent = '✕';
     closeBtn.title = '关闭编辑器';
+    closeBtn.setAttribute('data-notranslate', 'true');
+    closeBtn.setAttribute('translate', 'no');
     closeBtn.style.width = '12px';
     closeBtn.style.height = '12px';
     closeBtn.style.borderRadius = '50%';
@@ -205,6 +209,8 @@ function createEditor() {
     exportBtn.className = 'md-export';
     exportBtn.textContent = '⬆';
     exportBtn.title = '导出为Markdown';
+    exportBtn.setAttribute('data-notranslate', 'true');
+    exportBtn.setAttribute('translate', 'no');
     exportBtn.style.width = '12px';
     exportBtn.style.height = '12px';
     exportBtn.style.borderRadius = '50%';
