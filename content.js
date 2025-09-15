@@ -1349,9 +1349,16 @@ function getFirstLineText(htmlContent) {
   
   let firstText = '';
   let node;
+  const isInIgnoredTag = (n) => {
+    if (!n || !n.parentElement) return false;
+    const tag = n.parentElement.tagName.toLowerCase();
+    return tag === 'style' || tag === 'script' || tag === 'meta' || tag === 'link' || tag === 'title' || tag === 'head';
+  };
+  const looksLikeCss = (text) => /\{[\s\S]*?\}/.test(text) && /:/.test(text);
   while (node = walker.nextNode()) {
+    if (isInIgnoredTag(node)) continue;
     const text = node.textContent.trim();
-    if (text) {
+    if (text && !looksLikeCss(text)) {
       firstText = text;
       break;
     }
@@ -1773,6 +1780,12 @@ function cleanHtmlForPaste(html) {
   // 创建临时元素来解析HTML
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
+  
+  // 移除样式和脚本等非内容标签，避免把CSS粘入编辑器
+  const nonContentSelectors = ['style', 'script', 'meta', 'link', 'title', 'head'];
+  nonContentSelectors.forEach(sel => {
+    tempDiv.querySelectorAll(sel).forEach(el => el.remove());
+  });
   
   // 移除不需要的属性和样式，但保留基本格式
   const elementsToClean = tempDiv.querySelectorAll('*');
