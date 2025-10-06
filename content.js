@@ -713,9 +713,9 @@ function addIsolationStyles() {
       background-color: rgba(0, 122, 255, 0.2);
     }
     
-    /* 边缘句柄 - 更大的热区，悬浮时显示光标 */
+    /* 边缘句柄 - 增大热区以改善触控板体验 */
     .resize-handle-n, .resize-handle-s {
-      left: 0; right: 0; height: 8px;
+      left: 0; right: 0; height: 12px;
     }
     
     .resize-handle-n:hover, .resize-handle-s:hover {
@@ -723,21 +723,21 @@ function addIsolationStyles() {
     }
     
     .resize-handle-e, .resize-handle-w {
-      top: 0; bottom: 0; width: 8px;
+      top: 0; bottom: 0; width: 12px;
     }
     
     .resize-handle-e:hover, .resize-handle-w:hover {
       cursor: ew-resize;
     }
     
-    .resize-handle-n { top: -4px; }
-    .resize-handle-s { bottom: -4px; }
-    .resize-handle-e { right: -4px; }
-    .resize-handle-w { left: -4px; }
+    .resize-handle-n { top: -6px; }
+    .resize-handle-s { bottom: -6px; }
+    .resize-handle-e { right: -6px; }
+    .resize-handle-w { left: -6px; }
     
-    /* 角落句柄 - Mac 风格的大热区，悬浮时显示光标 */
+    /* 角落句柄 - 增大范围以改善触控板体验 */
     .resize-handle-ne, .resize-handle-sw {
-      width: 20px; height: 20px;
+      width: 24px; height: 24px;
     }
     
     .resize-handle-ne:hover, .resize-handle-sw:hover {
@@ -745,17 +745,17 @@ function addIsolationStyles() {
     }
     
     .resize-handle-nw, .resize-handle-se {
-      width: 20px; height: 20px;
+      width: 24px; height: 24px;
     }
     
     .resize-handle-nw:hover, .resize-handle-se:hover {
       cursor: nwse-resize;
     }
     
-    .resize-handle-ne { top: -10px; right: -10px; }
-    .resize-handle-nw { top: -10px; left: -10px; }
-    .resize-handle-se { bottom: -10px; right: -10px; }
-    .resize-handle-sw { bottom: -10px; left: -10px; }
+    .resize-handle-ne { top: -12px; right: -12px; }
+    .resize-handle-nw { top: -12px; left: -12px; }
+    .resize-handle-se { bottom: -12px; right: -12px; }
+    .resize-handle-sw { bottom: -12px; left: -12px; }
     
     /* 角落句柄的视觉指示器 */
     .resize-handle-se::after {
@@ -798,7 +798,8 @@ function implementDrag(handle) {
     e.preventDefault();
   });
   
-  document.addEventListener('mousemove', function(e) {
+  // 统一处理鼠标和指针移动事件
+  function handleMove(e) {
     if (isDragging) {
       // 确保编辑器不会被拖出视口
       const newLeft = e.clientX - offsetX;
@@ -818,9 +819,13 @@ function implementDrag(handle) {
     if (isResizing) {
       handleResize(e);
     }
-  });
+  }
   
-  document.addEventListener('mouseup', function() {
+  document.addEventListener('mousemove', handleMove);
+  document.addEventListener('pointermove', handleMove);
+  
+  // 统一处理鼠标和指针释放事件
+  function handleUp() {
     if (isDragging) {
       console.log('Stopped dragging');
       handle.style.cursor = 'move';
@@ -839,7 +844,11 @@ function implementDrag(handle) {
       editorElement.style.border = 'none';
       editorElement.style.outline = 'none';
     }
-  });
+  }
+  
+  document.addEventListener('mouseup', handleUp);
+  document.addEventListener('pointerup', handleUp);
+  document.addEventListener('pointercancel', handleUp);
 }
 
 // 显示编辑器
@@ -1551,7 +1560,14 @@ function createResizeHandles() {
   handleTypes.forEach(type => {
     const handle = document.createElement('div');
     handle.className = `resize-handle resize-handle-${type}`;
+    // 支持鼠标和触控板事件
     handle.addEventListener('mousedown', (e) => startResize(e, type));
+    handle.addEventListener('pointerdown', (e) => startResize(e, type));
+    // 防止触发文本选择
+    handle.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startResize(e.touches[0], type);
+    }, { passive: false });
     handles.push(handle);
   });
   
@@ -1567,6 +1583,7 @@ let resizeStartWidth = 0;
 let resizeStartHeight = 0;
 let resizeStartLeft = 0;
 let resizeStartTop = 0;
+let resizeRafId = null;
 
 // 开始调整大小
 function startResize(e, type) {
@@ -1574,8 +1591,8 @@ function startResize(e, type) {
   
   isResizing = true;
   resizeType = type;
-  resizeStartX = e.clientX;
-  resizeStartY = e.clientY;
+  resizeStartX = e.clientX || e.pageX;
+  resizeStartY = e.clientY || e.pageY;
   
   const rect = editorWrapper.getBoundingClientRect();
   resizeStartWidth = rect.width;
@@ -1585,8 +1602,21 @@ function startResize(e, type) {
   
   editorWrapper.classList.add('resizing');
   
-  // 只防止文本选择，不设置全局光标
+  // 防止文本选择和其他默认行为
   document.body.style.userSelect = 'none';
+  document.body.style.webkitUserSelect = 'none';
+  document.body.style.pointerEvents = 'none';
+  editorWrapper.style.pointerEvents = 'auto';
+  
+  // 设置全局光标样式以保持一致
+  let cursor = 'default';
+  if (type.includes('n') && type.includes('e')) cursor = 'nesw-resize';
+  else if (type.includes('n') && type.includes('w')) cursor = 'nwse-resize';
+  else if (type.includes('s') && type.includes('e')) cursor = 'nwse-resize';
+  else if (type.includes('s') && type.includes('w')) cursor = 'nesw-resize';
+  else if (type.includes('n') || type.includes('s')) cursor = 'ns-resize';
+  else if (type.includes('e') || type.includes('w')) cursor = 'ew-resize';
+  document.body.style.cursor = cursor;
   
   e.preventDefault();
   e.stopPropagation();
@@ -1595,52 +1625,65 @@ function startResize(e, type) {
 }
 
 
-// 处理调整大小
+// 处理调整大小（使用 requestAnimationFrame 优化性能）
 function handleResize(e) {
   if (!isResizing) return;
   
-  const deltaX = e.clientX - resizeStartX;
-  const deltaY = e.clientY - resizeStartY;
-  
-  let newWidth = resizeStartWidth;
-  let newHeight = resizeStartHeight;
-  let newLeft = resizeStartLeft;
-  let newTop = resizeStartTop;
-  
-  // 根据调整类型计算新的尺寸和位置
-  if (resizeType.includes('e')) {
-    newWidth = Math.max(300, resizeStartWidth + deltaX);
-  }
-  if (resizeType.includes('w')) {
-    newWidth = Math.max(300, resizeStartWidth - deltaX);
-    newLeft = resizeStartLeft + (resizeStartWidth - newWidth);
-  }
-  if (resizeType.includes('s')) {
-    newHeight = Math.max(200, resizeStartHeight + deltaY);
-  }
-  if (resizeType.includes('n')) {
-    newHeight = Math.max(200, resizeStartHeight - deltaY);
-    newTop = resizeStartTop + (resizeStartHeight - newHeight);
+  // 取消之前的动画帧
+  if (resizeRafId) {
+    cancelAnimationFrame(resizeRafId);
   }
   
-  // 确保不超出视口边界
-  const maxWidth = window.innerWidth * 0.9;
-  const maxHeight = window.innerHeight * 0.9;
-  
-  newWidth = Math.min(newWidth, maxWidth);
-  newHeight = Math.min(newHeight, maxHeight);
-  
-  // 确保不会移出视口
-  newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newWidth));
-  newTop = Math.max(0, Math.min(newTop, window.innerHeight - newHeight));
-  
-  // 应用新的尺寸和位置
-  editorWrapper.style.width = newWidth + 'px';
-  editorWrapper.style.height = newHeight + 'px';
-  editorWrapper.style.left = newLeft + 'px';
-  editorWrapper.style.top = newTop + 'px';
-  editorWrapper.style.right = 'auto';
-  editorWrapper.style.bottom = 'auto';
+  // 使用 requestAnimationFrame 让调整更流畅
+  resizeRafId = requestAnimationFrame(() => {
+    const currentX = e.clientX || e.pageX;
+    const currentY = e.clientY || e.pageY;
+    
+    const deltaX = currentX - resizeStartX;
+    const deltaY = currentY - resizeStartY;
+    
+    let newWidth = resizeStartWidth;
+    let newHeight = resizeStartHeight;
+    let newLeft = resizeStartLeft;
+    let newTop = resizeStartTop;
+    
+    // 根据调整类型计算新的尺寸和位置
+    if (resizeType.includes('e')) {
+      newWidth = Math.max(300, resizeStartWidth + deltaX);
+    }
+    if (resizeType.includes('w')) {
+      newWidth = Math.max(300, resizeStartWidth - deltaX);
+      newLeft = resizeStartLeft + (resizeStartWidth - newWidth);
+    }
+    if (resizeType.includes('s')) {
+      newHeight = Math.max(200, resizeStartHeight + deltaY);
+    }
+    if (resizeType.includes('n')) {
+      newHeight = Math.max(200, resizeStartHeight - deltaY);
+      newTop = resizeStartTop + (resizeStartHeight - newHeight);
+    }
+    
+    // 确保不超出视口边界
+    const maxWidth = window.innerWidth * 0.9;
+    const maxHeight = window.innerHeight * 0.9;
+    
+    newWidth = Math.min(newWidth, maxWidth);
+    newHeight = Math.min(newHeight, maxHeight);
+    
+    // 确保不会移出视口
+    newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newWidth));
+    newTop = Math.max(0, Math.min(newTop, window.innerHeight - newHeight));
+    
+    // 应用新的尺寸和位置
+    editorWrapper.style.width = newWidth + 'px';
+    editorWrapper.style.height = newHeight + 'px';
+    editorWrapper.style.left = newLeft + 'px';
+    editorWrapper.style.top = newTop + 'px';
+    editorWrapper.style.right = 'auto';
+    editorWrapper.style.bottom = 'auto';
+    
+    resizeRafId = null;
+  });
 }
 
 // 结束调整大小
@@ -1650,8 +1693,18 @@ function stopResize() {
     resizeType = '';
     editorWrapper.classList.remove('resizing');
     
-    // 恢复文本选择
+    // 取消待处理的动画帧
+    if (resizeRafId) {
+      cancelAnimationFrame(resizeRafId);
+      resizeRafId = null;
+    }
+    
+    // 恢复文本选择和指针事件
     document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+    document.body.style.pointerEvents = '';
+    document.body.style.cursor = '';
+    editorWrapper.style.pointerEvents = '';
     
     console.log('Stopped resizing');
   }
